@@ -1,0 +1,724 @@
+const crypto = require('crypto');
+const { REG_OPS, REG_ALIAS_BASE, PC_INV, PC_MUL } = require('../zlang/registerVm');
+const { buildNativeProgram } = require('../zlang/nativeCompiler');
+const { buildEmissionPlan } = require('../zlang/emitter');
+const { resolvePreset } = require('../zlang/presets');
+
+const OP_NAME = Object.fromEntries(Object.entries(REG_OPS).map(([k, v]) => [v, k]));
+const OP_COUNT = Object.keys(REG_OPS).length;
+if (OP_COUNT !== 56) throw new Error('X7.1: la ISA register cambió; actualiza el runtime X7.1.');
+
+const MAGIC = [88, 55, 71];
+const PC_MOD = 4294967296;
+
+function rand(min, max) { return crypto.randomInt(min, max + 1); }
+function shuffle(values) {
+    const out = values.slice();
+    for (let i = out.length - 1; i > 0; i -= 1) {
+        const j = rand(0, i);
+        [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+}
+function mod32(v) {
+    v = Number(v);
+    v %= PC_MOD;
+    if (v < 0) v += PC_MOD;
+    return v;
+}
+function mul32(a, b) {
+    const al = a % 65536;
+    const ah = Math.floor(a / 65536);
+    const bl = b % 65536;
+    const bh = Math.floor(b / 65536);
+    return mod32(al * bl + (al * bh + ah * bl) * 65536);
+}
+function gcd32(a, b) {
+    a = Math.abs(a | 0);
+    b = Math.abs(b | 0);
+    while (b) {
+        const t = a % b;
+        a = b;
+        b = t;
+    }
+    return a || 1;
+}
+function randomOdd32() {
+    let n = rand(1, 0xFFFFFFFE) >>> 0;
+    n |= 1;
+    if (gcd32(n, 4294967296) !== 1) n = (n + 2) >>> 0;
+    return n >>> 0;
+}
+function invOdd32(a) {
+    let x = 1 >>> 0;
+    // Newton iteration modulo 2^32. This uses only integer multiplication.
+    for (let i = 0; i < 5; i += 1) x = mul32(x, (2 - mul32(a, x)) >>> 0);
+    return x >>> 0;
+}
+function u16(out, v) {
+    if (!Number.isInteger(v) || v < 0 || v > 65535) throw new Error('X7.1 u16 fuera de rango.');
+    out.push((v >>> 8) & 255, v & 255);
+}
+function u32(out, v) {
+    v = mod32(v);
+    out.push(Math.floor(v / 16777216) % 256, Math.floor(v / 65536) % 256, Math.floor(v / 256) % 256, v % 256);
+}
+function readU32(bytes, at) {
+    return bytes[at] * 16777216 + bytes[at + 1] * 65536 + bytes[at + 2] * 256 + bytes[at + 3];
+}
+function baseName(id) {
+    const name = OP_NAME[id];
+    return name && REG_ALIAS_BASE[name] ? REG_ALIAS_BASE[name] : name;
+}
+function semanticOp(fn, id) {
+    const decoded = Array.isArray(fn.opcodeDecode) ? (fn.opcodeDecode[id] || id) : id;
+    return REG_OPS[baseName(decoded)] || decoded;
+}
+function targetFields(op) {
+    switch (op) {
+        case REG_OPS.JUMP:
+        case REG_OPS.JUMP_ALT:
+        case REG_OPS.BREAK:
+            return [1];
+        case REG_OPS.JUMP_IF_FALSE:
+        case REG_OPS.JUMP_IF_TRUE:
+            return [2];
+        case REG_OPS.FOR_NUM_CHECK:
+        case REG_OPS.FOR_NUM_NEXT:
+            return [1];
+        case REG_OPS.ITER_PREP:
+            return [4];
+        case REG_OPS.ITER_NEXT:
+            return [1, 2];
+        case REG_OPS.FUSED_BIN_JUMP_FALSE:
+        case REG_OPS.FUSED_BIN_JUMP_TRUE:
+        case REG_OPS.FUSED_BIN_JUMP_FALSE_ALT:
+        case REG_OPS.FUSED_BIN_JUMP_TRUE_ALT:
+            return [4];
+        default:
+            return [];
+    }
+}
+function constantFields(op) {
+    const name = baseName(op);
+    switch (name) {
+        case 'LOAD_CONST':
+        case 'LOAD_CONST_ALT':
+        case 'LOAD_GLOBAL':
+        case 'STORE_GLOBAL':
+        case 'GET_MEMBER':
+        case 'SET_MEMBER':
+        case 'CALL_METHOD':
+        case 'CALL_METHOD_MULTI':
+        case 'CALL_METHOD_EXPAND':
+            return name === 'STORE_GLOBAL' ? [1] :
+                name === 'GET_MEMBER' ? [3] :
+                name === 'SET_MEMBER' ? [2] :
+                (name === 'CALL_METHOD' || name === 'CALL_METHOD_MULTI' || name === 'CALL_METHOD_EXPAND') ? [3] : [2];
+        case 'FUSED_LOCAL_CONST_BIN_STORE':
+            return [2];
+        case 'FUSED_GLOBAL_CALL':
+            return [2];
+        default:
+            return [];
+    }
+}
+function functionFields(op) {
+    return baseName(op) === 'MAKE_FUNCTION' ? [2] : [];
+}
+function localFields(op) {
+    switch (baseName(op)) {
+        case 'LOAD_LOCAL':
+        case 'LOAD_LOCAL_ALT':
+            return [2];
+        case 'STORE_LOCAL':
+        case 'STORE_LOCAL_ALT':
+            return [1];
+        case 'FOR_NUM_PREP':
+            return [1];
+        case 'FUSED_LOCAL_CONST_BIN_STORE':
+            return [1, 4];
+        case 'FUSED_LOCAL_LOCAL_BIN_STORE':
+            return [1, 2, 4];
+        default:
+            return [];
+    }
+}
+function canonicalize(program) {
+    const functions = (program.functions || []).map(fn => {
+        const code = (fn.code || []).map(raw => {
+            const ins = Array.from(raw);
+            const op = semanticOp(fn, ins[0]);
+            if (!Number.isInteger(op) || op < 1 || op > OP_COUNT) throw new Error('X7.1: opcode inválido.');
+            const fields = targetFields(op);
+            for (const field of fields) {
+                const encoded = Boolean(fn.pcTargetEncoded);
+                if (encoded) {
+                    const mul = Number(PC_MUL) >>> 0;
+                    const inv = Number(PC_INV) >>> 0;
+                    const add = Number(fn.pcTargetAdd || 0) >>> 0;
+                    let x = (ins[field] >>> 0);
+                    if (inv) x = mul32((x - add) >>> 0, inv) >>> 0;
+                    else x = mod32(x - add);
+                    ins[field] = x;
+                }
+            }
+            ins[0] = op;
+            return ins;
+        });
+        return {
+            params: Array.isArray(fn.params) ? fn.params.map(Number) : [],
+            vararg: !!fn.vararg,
+            localCount: Number(fn.localCount) || 0,
+            registerCount: Number(fn.registerCount) || 0,
+            upvalues: Array.isArray(fn.upvalues) ? fn.upvalues.map(x => ({ kind: x.kind === 'local' ? 0 : 1, index: Number(x.index) || 0 })) : [],
+            iteratorLayouts: Array.isArray(fn.iteratorLayouts) ? fn.iteratorLayouts.map(x => Array.isArray(x) ? x.map(Number) : []) : [],
+            code
+        };
+    });
+    const constants = (program.constants || []).map(c => ({ type: Number(c.type), value: c.value }));
+    if (functions.length > 65535 || constants.length > 65535) throw new Error('X7.1: contenedor excede sus límites.');
+    return { functions, constants, root: Number.isInteger(program.root) ? program.root : 0 };
+}
+
+function encodeString(bytes, key, step) {
+    const out = new Array(bytes.length);
+    for (let i = 0; i < bytes.length; i += 1) out[i] = (bytes[i] + key + i * step) & 255;
+    return out;
+}
+function putBytes(dst, bytes) {
+    // Never spread a large byte section into Array.prototype.push: V8 has an
+    // argument-count limit and large scripts can otherwise fail with
+    // "Maximum call stack size exceeded".
+    for (let i = 0; i < bytes.length; i += 1) dst.push(bytes[i]);
+}
+function putMaskedU32(dst, value, key, step, index) { u32(dst, mul32(mod32(value + key + index * step), 65537)); }
+function seal(bytes) {
+    let a = 17;
+    let b = 29;
+    for (let i = 0; i < bytes.length; i += 1) {
+        const v = bytes[i];
+        a = (a + v * (i + 11)) % 65521;
+        b = (b * 33 + v + i + 7) % 65521;
+    }
+    return (((a << 16) >>> 0) | (b & 65535)) >>> 0;
+}
+
+function buildContainer(program, options = {}) {
+    const C = canonicalize(program);
+    const encodeLocalOperands = options.encodeLocalOperands === true;
+    const encodeInstructionRoute = options.encodeInstructionRoute === true;
+    const encodeOperandFeedback = options.encodeOperandFeedback === true;
+    const encodeConstantRoute = options.encodeConstantRoute === true;
+    const encodeTargetTokens = options.encodeTargetTokens === true;
+    for (const fn of C.functions) for (const ins of fn.code) {
+        if ((ins[0] === REG_OPS.BIN || ins[0] === REG_OPS.BIN_ALT) && (!Number.isInteger(ins[4]) || ins[4] < 1 || ins[4] > 19)) {
+            throw new Error('X7.1: BIN semántico inválido '+String(ins[4]));
+        }
+    }
+    if (C.root < 0 || C.root >= C.functions.length) throw new Error('X7.1: root inválido.');
+
+    const opcodeMaps = [];
+        for (let f = 0; f < C.functions.length; f += 1) {
+        const semantics = Array.from({ length: OP_COUNT }, (_, i) => i + 1);
+        const physical = shuffle(semantics);
+        const encode = {};
+        const decode = [0];
+        semantics.forEach((semantic, i) => { encode[semantic] = physical[i]; decode[physical[i]] = semantic; });
+        opcodeMaps.push({ encode, decode });
+        for (const ins of C.functions[f].code) ins[0] = encode[ins[0]] || ins[0];
+    }
+
+    // Section A: encrypted constants, fragmented by entry.
+    const constSection = [];
+    u16(constSection, C.constants.length);
+    const constantOrder = encodeConstantRoute
+        ? shuffle(Array.from({ length: C.constants.length }, (_, n) => n))
+        : Array.from({ length: C.constants.length }, (_, n) => n);
+    if (encodeConstantRoute) {
+        const logicalToPhysical = new Array(C.constants.length);
+        for (let physicalIndex = 0; physicalIndex < constantOrder.length; physicalIndex += 1) {
+            logicalToPhysical[constantOrder[physicalIndex]] = physicalIndex;
+        }
+        for (let logicalIndex = 0; logicalIndex < C.constants.length; logicalIndex += 1) {
+            u32(constSection, logicalToPhysical[logicalIndex]);
+        }
+    }
+    for (let physicalIndex = 0; physicalIndex < C.constants.length; physicalIndex += 1) {
+        const i = constantOrder[physicalIndex];
+        const c = C.constants[i];
+        const type = c.type;
+        let raw;
+        if (type === 1 || type === 2) raw = Buffer.from(String(c.value), 'utf8');
+        else if (type === 3) raw = Buffer.from([Number(c.value) ? 1 : 0]);
+        else if (type === 4) raw = Buffer.from([0]);
+        else throw new Error('X7.1: constante inválida.');
+        const key = rand(0, 255);
+        const step = rand(1, 255);
+        const shards = Math.max(1, Math.min(6, 1 + (rand(0, 255) % 4)));
+        const offsets = [0];
+        for (let s = 1; s < shards; s += 1) offsets.push(rand(offsets[offsets.length - 1], raw.length));
+        offsets.push(raw.length);
+        const cuts = Array.from(new Set(offsets)).sort((a, b) => a - b);
+        const actualShards = Math.max(1, cuts.length - 1);
+        const order = shuffle(Array.from({ length: actualShards }, (_, n) => n));
+        const packed = [];
+        for (let j = 0; j < actualShards; j += 1) {
+            const sourceShard = order[j];
+            const slice = raw.subarray(cuts[sourceShard], cuts[sourceShard + 1]);
+            packed.push({ index: sourceShard, bytes: encodeString(slice, key + sourceShard, step) });
+        }
+        const entrySeed = rand(0, 255);
+        const entry = [];
+        entry.push(type, key, step, entrySeed, packed.length);
+        for (const shard of packed) {
+            entry.push((shard.index + entrySeed) & 255); u16(entry, shard.bytes.length);
+            putBytes(entry, shard.bytes);
+        }
+        u32(constSection, entry.length);
+        putBytes(constSection, entry);
+    }
+
+    // Section B: compact function metadata. Function names/identifiers do not survive.
+    const metaSection = [];
+    u16(metaSection, C.functions.length);
+    u16(metaSection, C.root);
+    for (let i = 0; i < C.functions.length; i += 1) {
+        const fn = C.functions[i];
+        if (fn.params.length > 65535 || fn.upvalues.length > 65535 || fn.iteratorLayouts.length > 65535) throw new Error('X7.1: metadata de función fuera de rango.');
+        const k = rand(0x10000, 0xFFFFFFFF) >>> 0;
+        const st = (rand(1, 0xFFFF) | 1) >>> 0;
+        // X7.1 metadata must be self-describing: persist both mask parameters.
+        u32(metaSection, k);
+        u32(metaSection, st);
+        u16(metaSection, fn.vararg ? 1 : 0);
+        putMaskedU32(metaSection, fn.localCount, k, st, 1);
+        putMaskedU32(metaSection, fn.registerCount, k, st, 2);
+        u16(metaSection, fn.params.length);
+        for (let p = 0; p < fn.params.length; p += 1) putMaskedU32(metaSection, fn.params[p], k, st, 10 + p);
+        u16(metaSection, fn.upvalues.length);
+        for (let u = 0; u < fn.upvalues.length; u += 1) {
+            metaSection.push((fn.upvalues[u].kind + k + u * 17) % 256);
+            putMaskedU32(metaSection, fn.upvalues[u].index, k, st, 200 + u);
+        }
+        u16(metaSection, fn.iteratorLayouts.length);
+        for (let j = 0; j < fn.iteratorLayouts.length; j += 1) {
+            const it = fn.iteratorLayouts[j];
+            u16(metaSection, it.length);
+            for (let q = 0; q < it.length; q += 1) putMaskedU32(metaSection, it[q], k, st, 400 + j * 97 + q);
+        }
+    }
+
+    // Section C: split opcode/operand planes. No tuple-per-instruction layout is persisted.
+    const codeSection = [];
+    u16(codeSection, C.functions.length);
+    for (let i = 0; i < C.functions.length; i += 1) {
+        const fn = C.functions[i];
+        if (fn.code.length > 0xFFFFFFFF) throw new Error('X7.1: demasiadas instrucciones.');
+        const order = shuffle([1, 2, 3, 4]);
+        const pcMul = randomOdd32();
+        const pcInv = invOdd32(pcMul);
+        const pcAdd = rand(0, 0xFFFFFFFF) >>> 0;
+        const fnMul = randomOdd32();
+        const fnAdd = rand(0, 0xFFFFFFFF) >>> 0;
+        const cMul = randomOdd32();
+        const cAdd = rand(0, 0xFFFFFFFF) >>> 0;
+        const lMul = encodeLocalOperands ? randomOdd32() : 1;
+        const lAdd = encodeLocalOperands ? (rand(0, 0xFFFFFFFF) >>> 0) : 0;
+        const feedbackKeys = encodeOperandFeedback
+            ? Array.from({ length: 4 }, () => rand(0, 0xFFFFFFFF) >>> 0)
+            : [0, 0, 0, 0];
+        const targetTokens = encodeTargetTokens ? (() => {
+            const used = new Set();
+            const tokens = new Array(fn.code.length + 1);
+            for (let logicalPc = 1; logicalPc <= fn.code.length; logicalPc += 1) {
+                let token;
+                do token = rand(0, 0xFFFFFFFF) >>> 0; while (used.has(token));
+                used.add(token);
+                tokens[logicalPc] = token;
+            }
+            return tokens;
+        })() : null;
+
+        u32(codeSection, fn.code.length);
+        codeSection.push(...order);
+        u32(codeSection, pcMul);
+        u32(codeSection, pcAdd);
+        u32(codeSection, fnMul);
+        u32(codeSection, fnAdd);
+        u32(codeSection, cMul);
+        u32(codeSection, cAdd);
+        if (encodeLocalOperands) {
+            u32(codeSection, lMul);
+            u32(codeSection, lAdd);
+        }
+        if (encodeTargetTokens) {
+            for (let logicalPc = 1; logicalPc <= fn.code.length; logicalPc += 1) {
+                u32(codeSection, targetTokens[logicalPc]);
+            }
+        }
+        const physicalOrder = encodeInstructionRoute
+            ? shuffle(Array.from({ length: fn.code.length }, (_, n) => n + 1))
+            : Array.from({ length: fn.code.length }, (_, n) => n + 1);
+        if (encodeInstructionRoute) {
+            const logicalToPhysical = new Array(fn.code.length + 1);
+            for (let physicalSlot = 1; physicalSlot <= physicalOrder.length; physicalSlot += 1) {
+                logicalToPhysical[physicalOrder[physicalSlot - 1]] = physicalSlot;
+            }
+            for (let logicalPc = 1; logicalPc <= fn.code.length; logicalPc += 1) {
+                u32(codeSection, logicalToPhysical[logicalPc]);
+            }
+        }
+        for (const logicalPc of physicalOrder) codeSection.push(fn.code[logicalPc - 1][0] & 255);
+        for (let q = 1; q <= OP_COUNT; q += 1) codeSection.push(opcodeMaps[i].decode[q] || q);
+
+        const planes = [[], [], [], []];
+        const planeKeys = [];
+        const planeSteps = [];
+        for (let p = 0; p < 4; p += 1) {
+            planeKeys[p] = rand(0, 0xFFFFFFFF) >>> 0;
+            planeSteps[p] = (rand(1, 0xFFFF) | 1) >>> 0;
+            u32(codeSection, planeKeys[p]);
+            u32(codeSection, planeSteps[p]);
+        }
+
+        for (let physicalPc = 0; physicalPc < fn.code.length; physicalPc += 1) {
+            const logicalPc = physicalOrder[physicalPc];
+            const ins = fn.code[logicalPc - 1];
+            const sem = opcodeMaps[i].decode[ins[0]];
+            let vals = [ins[1] >>> 0, ins[2] >>> 0, ins[3] >>> 0, ins[4] >>> 0];
+
+            for (const field of targetFields(sem)) {
+                const idx = field - 1;
+                vals[idx] = encodeTargetTokens
+                    ? targetTokens[vals[idx]]
+                    : mod32(mul32(vals[idx], pcMul) + pcAdd);
+            }
+            for (const field of functionFields(sem)) {
+                const idx = field - 1;
+                vals[idx] = mod32(mul32(vals[idx], fnMul) + fnAdd);
+            }
+            for (const field of constantFields(sem)) {
+                const idx = field - 1;
+                vals[idx] = mod32(mul32(vals[idx], cMul) + cAdd);
+            }
+            if (encodeLocalOperands) {
+                for (const field of localFields(sem)) {
+                    const idx = field - 1;
+                    vals[idx] = mod32(mul32(vals[idx], lMul) + lAdd);
+                }
+            }
+            for (let field = 0; field < 4; field += 1) planes[order[field] - 1].push(vals[field]);
+        }
+        if (encodeOperandFeedback) {
+            for (let p = 0; p < 4; p += 1) u32(codeSection, feedbackKeys[p]);
+        }
+        for (let p = 0; p < 4; p += 1) {
+            let previous = 0;
+            for (let j = 0; j < planes[p].length; j += 1) {
+                const v = mod32(planes[p][j] + planeKeys[p] + j * planeSteps[p] + mul32(previous, feedbackKeys[p]));
+                u32(codeSection, v);
+                previous = v;
+            }
+        }
+    }
+
+    // Section D: a small verifier ledger. It proves the count/shape without exposing source metadata.
+    const ledgerSection = [];
+    u32(ledgerSection, C.functions.reduce((n, fn) => n + fn.code.length, 0));
+    u32(ledgerSection, C.constants.length);
+    u32(ledgerSection, C.functions.length);
+    u32(ledgerSection, C.root);
+
+    const sectionPairs = [
+        [11, constSection],
+        [19, metaSection],
+        [37, codeSection],
+        [53, ledgerSection]
+    ];
+    const featureMask = (encodeLocalOperands ? 1 : 0) | (encodeInstructionRoute ? 2 : 0) | (encodeOperandFeedback ? 4 : 0) | (encodeConstantRoute ? 8 : 0) | (encodeTargetTokens ? 16 : 0);
+    if (featureMask) sectionPairs.push([71, [featureMask]]);
+    const ordered = shuffle(sectionPairs);
+    const bytes = [...MAGIC, ordered.length];
+    for (const [id, section] of ordered) {
+        bytes.push(id);
+        u32(bytes, section.length);
+        putBytes(bytes, section);
+    }
+    const s = seal(bytes);
+    u32(bytes, s);
+    return { bytes };
+}
+
+function validateContainer(bytes) {
+    let p = 0;
+    const need = n => { if (p + n > bytes.length) throw new Error('X7.1: contenedor truncado.'); };
+    const u = () => { need(1); return bytes[p++]; };
+    const U = () => { const a=u(),b=u(); return a*256+b; };
+    const V = () => { const a=u(),b=u(),d=u(),e=u(); return a*16777216+b*65536+d*256+e; };
+    if (bytes.length < 8 || u() !== 88 || u() !== 55 || u() !== 71) throw new Error('X7.1: magic inválido.');
+    const sections = new Map();
+    const count = u();
+    for (let i = 0; i < count; i += 1) {
+        const id = u();
+        const len = V();
+        need(len);
+        sections.set(id, bytes.slice(p, p + len));
+        p += len;
+    }
+    if (p + 4 !== bytes.length) throw new Error('X7.1: framing inválido.');
+    const expected = readU32(bytes, p);
+    const got = seal(bytes.slice(0, p));
+    if (expected !== got) throw new Error('X7.1: seal interno inválido.');
+    const C = sections.get(11), M = sections.get(19), I = sections.get(37), L = sections.get(53), F = sections.get(71);
+    if (!C || !M || !I || !L) throw new Error('X7.1: faltan secciones.');
+    if (F && (F.length !== 1 || (F[0] & 31) !== F[0])) throw new Error('X7.1: feature section inválida.');
+    const localMask = Boolean(F && (F[0] & 1));
+    const routeMask = Boolean(F && (F[0] & 2));
+    const feedbackMask = Boolean(F && (F[0] & 4));
+    const constantMask = Boolean(F && (F[0] & 8));
+    const targetTokenMask = Boolean(F && (F[0] & 16));
+    if (L.length !== 16) throw new Error('X7.1: ledger inválido.');
+
+    const readSection = section => {
+        let q = 0;
+        const b = section;
+        const one = () => { if (q >= b.length) throw new Error('X7.1: sección truncada.'); return b[q++]; };
+        const two = () => { const a=one(),d=one(); return a*256+d; };
+        const four = () => { const a=one(),d=one(),e=one(),g=one(); return a*16777216+d*65536+e*256+g; };
+        return { b, one, two, four, get pos(){ return q; } };
+    };
+
+    const cs = readSection(C);
+    const rc = cs.two();
+    if (constantMask) for (let i = 0; i < rc; i += 1) cs.four();
+    for (let i = 0; i < rc; i += 1) {
+        const len = cs.four();
+        const end = cs.pos + len;
+        if (end > C.length) throw new Error('X7.1: constante fuera de rango.');
+        cs.one(); cs.one(); cs.one(); cs.one(); cs.one();
+        for (;;) {
+            if (cs.pos >= end) break;
+            cs.one();
+            const shardLen = cs.two();
+            for (let j = 0; j < shardLen; j += 1) cs.one();
+        }
+        if (cs.pos !== end) throw new Error('X7.1: constante mal enmarcada.');
+    }
+    if (cs.pos !== C.length) throw new Error('X7.1: cola en constantes.');
+
+    const ms = readSection(M);
+    const nf = ms.two();
+    const root = ms.two();
+    if (root >= nf) throw new Error('X7.1: root fuera de rango.');
+    for (let i = 0; i < nf; i += 1) {
+        ms.four(); // metadata mask key
+        ms.four(); // metadata mask step
+        ms.two();  // vararg flag
+        ms.four(); ms.four();
+        const np = ms.two(); for (let j=0;j<np;j+=1) ms.four();
+        const nu = ms.two(); for (let j=0;j<nu;j+=1) { ms.one(); ms.four(); }
+        const ni = ms.two();
+        for (let j=0;j<ni;j+=1) { const n=ms.two(); for (let q=0;q<n;q+=1) ms.four(); }
+    }
+    if (ms.pos !== M.length) throw new Error('X7.1: cola en metadatos.');
+
+    const is = readSection(I);
+    const nfi = is.two();
+    if (nfi !== nf) throw new Error('X7.1: count de funciones inconsistente.');
+    let totalInstr = 0;
+    for (let i = 0; i < nf; i += 1) {
+        const countIns = is.four();
+        totalInstr += countIns;
+        for (let j=0;j<4;j+=1) is.one();
+        for (let j=0;j<6;j+=1) is.four();
+        if (localMask) for (let j=0;j<2;j+=1) is.four();
+        if (targetTokenMask) for (let j=0;j<countIns;j+=1) is.four();
+        if (routeMask) for (let j=0;j<countIns;j+=1) is.four();
+        for (let j=0;j<countIns;j+=1) is.one();
+        for (let j=0;j<56;j+=1) is.one();
+        for (let j=0;j<8;j+=1) is.four();
+        if (feedbackMask) for (let j=0;j<4;j+=1) is.four();
+        for (let j=0;j<countIns*4;j+=1) is.four();
+    }
+    if (is.pos !== I.length) throw new Error('X7.1: cola en bytecode plano.');
+
+    const ls = readSection(L);
+    const ledgerInstr = ls.four();
+    const ledgerConst = ls.four();
+    const ledgerFn = ls.four();
+    const ledgerRoot = ls.four();
+    if (ledgerInstr !== totalInstr || ledgerConst !== rc || ledgerFn !== nf || ledgerRoot !== root) throw new Error('X7.1: ledger no coincide.');
+    return true;
+}
+
+function alphabets() {
+    return [
+        shuffle(Array.from('abcdefghijklmnop')).join(''),
+        shuffle(Array.from('qrstuvwxyzABCDEF')).join('')
+    ];
+}
+function encodePayload(bytes, seed, step, hi, lo, rolling = false) {
+    const chunks = [];
+    let part = '';
+    let k1 = seed & 255;
+    let k2 = (seed * 7 + step + 13) & 255;
+    let k3 = (seed * 31 + step * 17 + 17) & 255;
+    for (let i = 0; i < bytes.length; i += 1) {
+        let v = (bytes[i] + seed + i * step) & 255;
+        if (rolling) {
+            const pos = i + 1;
+            const lane = pos % 3;
+            if (lane === 1) v = (v + k1 + k3 + pos) & 255;
+            else if (lane === 2) v = (v - k2 + k3 - pos) & 255;
+            else v = (v + k2 - k1 + pos) & 255;
+            k1 = (k1 * 13 + v + step) & 255;
+            k2 = (k2 * 31 + 17 + pos) & 255;
+            k3 = (k3 * 29 + v + 7 + seed) & 255;
+        }
+        part += hi[Math.floor(v / 16)] + lo[v % 16];
+        if (part.length >= 8192) {
+            chunks.push(part);
+            part = '';
+        }
+    }
+    if (part) chunks.push(part);
+    return chunks.join('');
+}
+function luaQuote(s) { return "'" + s.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'"; }
+function shellIdentifier(prefix) {
+    const alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    let out = prefix || 'v';
+    for (let i = 0; i < 7; i += 1) out += alphabet[rand(0, alphabet.length - 1)];
+    return out;
+}
+function makeDispatchTokens() {
+    const ids = Array.from({ length: 56 }, (_, i) => i + 1);
+    const tokens = shuffle(ids.slice());
+    const map = {};
+    for (let i = 0; i < ids.length; i += 1) map[ids[i]] = tokens[i];
+    if (tokens.every((v, i) => v === ids[i])) [tokens[0], tokens[1]] = [tokens[1], tokens[0]];
+    return map;
+}
+function polymorphDispatchSource(source, map) {
+    const marker = 'local X;local F=';
+    const split = source.indexOf(marker);
+    if (split < 0) return source;
+    const head = source.slice(0, split);
+    const tail = source.slice(split);
+    const body = tail.replace(/o==([0-9]+)/g, (_, n) => 'o==' + String(map[Number(n)] || Number(n)));
+    const table = 'local QD={' + Array.from({ length: 56 }, (_, i) => (i + 1) + '=' + map[i + 1]).join(',') + '};';
+    return head + body
+        .replace('X=function(t,P,id,pl,pu,a)local fn=', 'X=function(t,P,id,pl,pu,a)' + table + 'local fn=')
+        .replace('local o=fn.q[e[1]];', 'local o=QD[fn.q[e[1]]]or fn.q[e[1]];');
+}
+
+function makeShellNames() {
+    const used = new Set();
+    const take = prefix => {
+        let name;
+        do name = shellIdentifier(prefix); while (used.has(name));
+        used.add(name);
+        return name;
+    };
+    return {
+        payload: take('p'), hi: take('h'), lo: take('l'),
+        key: take('k'), step: take('s'), mode: take('m'), guard: take('g'),
+        decoder: take('d'), executor: take('o'), runner: take('r')
+    };
+}
+
+function payloadGuardHash(payload, hi, lo, key, step, mode = 0) {
+    let h = 2166136261;
+    for (let i = 0; i < payload.length; i += 1) {
+        h = (h + payload.charCodeAt(i) * (i + 1) + 17) % 4294967296;
+    }
+    for (const part of [hi, lo]) {
+        for (let i = 0; i < part.length; i += 1) h = (h + part.charCodeAt(i) * (i + 3) + 31) % 4294967296;
+    }
+    h = (h + (key % 256) * 257 + (step % 256) * 65537 + mode * 104729) % 4294967296;
+    return h;
+}
+function x71Loader(program, options = {}) {
+    const packed = buildContainer(program, options);
+    validateContainer(packed.bytes);
+    const seed = rand(0, 255);
+    const step = rand(1, 255);
+    const cipherMode = options.rollingPayload === true ? 1 : 0;
+    const [hi, lo] = alphabets();
+    const payload = encodePayload(packed.bytes, seed, step, hi, lo, cipherMode === 1);
+    const D = "D=function(t)local s=t.p;local o={};local n=#s;local rk1=t.k%256;local rk2=(t.k*7+t.s+13)%256;local rk3=(t.k*31+t.s*17+17)%256;if n%2~=0 then error('X71 payload')end;for i=1,n,2 do local a=string.find(t.h,string.sub(s,i,i),1,true);local b=string.find(t.l,string.sub(s,i+1,i+1),1,true);if not a or not b then error('X71 glyph')end;local j=(i-1)/2;local v=(a-1)*16+b-1;if t.m==1 then local pos=j+1;local e=v;if pos%3==1 then v=(e-rk1-rk3-pos)%256 elseif pos%3==2 then v=(e+rk2-rk3+pos)%256 else v=(e-rk2+rk1-pos)%256 end;rk1=(rk1*13+e+t.s)%256;rk2=(rk2*31+17+pos)%256;rk3=(rk3*29+e+7+t.k)%256 end;v=(v-t.k-j*t.s)%256;o[#o+1]=string.char(v)end;local r=table.concat(o);local q=function(i)return string.byte(r,i)or error('X71 eof')end;local p=1;local function u()local v=q(p);p=p+1;return v end;local function U()local a,b=u(),u();return a*256+b end;local function V()local a,b,c,d=u(),u(),u(),u();return a*16777216+b*65536+c*256+d end;if q(1)~=88 or q(2)~=55 or q(3)~=71 then error('X71 header')end;p=4;local ns=u();local sec={};for i=1,ns do local id=u();local len=V();local e=p+len-1;local z={};while p<=e do z[#z+1]=u()end;sec[id]=z end;local sealPos=p;local aa=17;local bb=29;for i=1,sealPos-1 do local v=q(i);aa=(aa+v*(i+10))%65521;bb=(bb*33+v+i+6)%65521 end;local expect1=V();local got=(((aa*65536)%4294967296)+bb)%4294967296;if got~=expect1 then error('X71 seal')end;local C=sec[11];local M=sec[19];local I=sec[37];local L=sec[53];local FT=sec[71];local localMask=FT and(FT[1]%2==1);local routeMask=FT and(math.floor(FT[1]/2)%2==1);local feedbackMask=FT and(math.floor(FT[1]/4)%2==1);local constantMask=FT and(math.floor(FT[1]/8)%2==1);local targetTokenMask=FT and(math.floor(FT[1]/16)%2==1);local D32=function(a,b)local al=a%65536;local ah=math.floor(a/65536);local bl=b%65536;local bh=math.floor(b/65536);return(al*bl+(al*bh+ah*bl)*65536)%4294967296 end;local M_INV=4294901761;if not C or not M or not I or not L then error('X71 sections')end;local lli=1;local function lV()local a,b,c,d=L[lli],L[lli+1],L[lli+2],L[lli+3];lli=lli+4;if not d then error('X71 ledger eof')end;return a*16777216+b*65536+c*256+d end;local expectedInstr=lV();local expectedConst=lV();local expectedFn=lV();local expectedRoot=lV();local ci=1;local function cu()local v=C[ci];ci=ci+1;if not v then error('X71 const eof')end;return v end;local function cU()local a,b=cu(),cu();return a*256+b end;local function cV()local a,b,c,d=cu(),cu(),cu(),cu();return a*16777216+b*65536+c*256+d end;local rc=cU();if rc~=expectedConst then error('X71 const count')end;local constantRoute;if constantMask then constantRoute={};for logical=1,rc do constantRoute[logical]=cV()+1 end end;local physicalConstants={};for i=1,rc do local entryLen=cV();local entryEnd=ci+entryLen;local typ=cu();local key=cu();local st=cu();local es=cu();local shards=cu();local chunks={};for j=1,shards do local si=(cu()-es)%256;local ln=cU();local d={};for k=1,ln do d[k]=cu()end;chunks[#chunks+1]={i=si,d=d}end;table.sort(chunks,function(a,b)return a.i<b.i end);physicalConstants[i]={t=typ,k=key,s=st,c=chunks};if ci~=entryEnd then error('X71 const entry')end end;local function decodeConst(d)local raw={};local pos=0;for _,ch in ipairs(d.c)do for k=1,#ch.d do pos=pos+1;raw[pos]=(ch.d[k]-d.k-ch.i-(k-1)*d.s)%256 end end;local chars={};for i=1,#raw do chars[i]=string.char(raw[i])end;local str=table.concat(chars);if d.t==1 then return str elseif d.t==2 then return tonumber(str)elseif d.t==3 then return string.byte(str,1)==1 else return nil end end;local constants=setmetatable({},{__index=function(t,logical)local physical=constantRoute and constantRoute[logical]or logical;local d=physicalConstants[physical];if not d then return nil end;if d.done then return d.v end;local v=decodeConst(d);d.v=v;d.done=true;d.c=nil;t[logical]=v;return v end});local mi=1;local function mu()local v=M[mi];mi=mi+1;if not v then error('X71 meta eof')end;return v end;local function mU()local a,b=mu(),mu();return a*256+b end;local function mV()local a,b,c,d=mu(),mu(),mu(),mu();return a*16777216+b*65536+c*256+d end;local nf=mU();local root=mU();if nf~=expectedFn or root~=expectedRoot then error('X71 ledger mismatch')end;local f={};for i=1,nf do local mk=mV();local step=mV();local vararg=mU()==1;local function mv(index)local v=mV();local x=D32(v,M_INV);return (x-mk-index*step)%4294967296 end;local fn={p={},u={},i={},c={},l=mv(1),r=mv(2),v=vararg,q=nil,z=nil,f=nil,k=nil};local np=mU();for j=1,np do fn.p[j]=mv(10+j-1)end;local nu=mU();for j=1,nu do fn.u[j]={((mu()-(mk%256)-((j-1)*17))%256+256)%256,mv(200+j-1)}end;local ni=mU();for j=1,ni do local it={};local n=mU();for k=1,n do it[k]=mv(400+(j-1)*97+(k-1))end;fn.i[j]=it end;f[i]=fn end;local li=1;local function iu()local v=I[li];li=li+1;if not v then error('X71 code eof')end;return v end;local function iU()local a,b=iu(),iu();return a*256+b end;local function iV()local a,b,c,d=iu(),iu(),iu(),iu();return a*16777216+b*65536+c*256+d end;local nfi=iU();if nfi~=nf then error('X71 fn count')end;local actualInstr=0;local dbg={};for i=1,nf do local fn=f[i];local count=iV();dbg[#dbg+1]=count;actualInstr=actualInstr+count;local order={iu(),iu(),iu(),iu()};fn.z={mul=iV(),add=iV()};fn.z.inv=(function(m)local x=1;for j=1,5 do x=D32(x,(2-D32(m,x))%4294967296)end;return x end)(fn.z.mul);fn.f={mul=iV(),add=iV()};fn.f.inv=(function(m)local x=1;for j=1,5 do x=D32(x,(2-D32(m,x))%4294967296)end;return x end)(fn.f.mul);fn.k={mul=iV(),add=iV()};fn.k.inv=(function(m)local x=1;for j=1,5 do x=D32(x,(2-D32(m,x))%4294967296)end;return x end)(fn.k.mul);if localMask then fn.x={mul=iV(),add=iV()};fn.x.inv=(function(m)local x=1;for j=1,5 do x=D32(x,(2-D32(m,x))%4294967296)end;return x end)(fn.x.mul)end;if targetTokenMask then fn.z.tokens={};for logical=1,count do fn.z.tokens[iV()]=logical end end;local route;if routeMask then route={};for logical=1,count do route[logical]=iV()end end;local opcodes={};for j=1,count do opcodes[j]=iu()end;fn.q={};local semanticByPhysical={};for q=1,56 do semanticByPhysical[q]=iu()end;fn.q=semanticByPhysical;fn.y=route;local pk={};local ps={};for q=1,4 do pk[q]=iV();ps[q]=iV()end;local feedbackKeys;if feedbackMask then feedbackKeys={};for q=1,4 do feedbackKeys[q]=iV()end end;local planes={{},{},{},{}};for q=1,4 do local previous=0;for j=1,count do local encoded=iV();local v=(encoded-pk[q]-((j-1)*ps[q])-(feedbackMask and mul32(previous,feedbackKeys[q])or 0))%4294967296;planes[q][j]=v;previous=encoded end end;local function J(op,f)if(op==24 or op==32 or op==46)and f==1 then return true elseif(op==25 or op==26)and f==2 then return true elseif(op==28 or op==29)and f==1 then return true elseif op==30 and f==4 then return true elseif op==31 and(f==1 or f==2)then return true elseif(op==38 or op==39 or op==48 or op==49)and f==4 then return true end;return false end;for pc=1,count do local vals={0,0,0,0};for logical=1,4 do local oi=order[logical];local plane=planes[oi];if not plane then error('X71 plane map '..tostring(i)..':'..tostring(logical)..':'..tostring(oi))end;local pv=plane[pc];if pv==nil then error('X71 plane eof '..tostring(i)..':'..tostring(pc))end;vals[logical]=pv end;local phys=opcodes[pc];local sem=fn.q[phys];if not sem then error('X71 opcode map')end;local e={phys,vals[1],vals[2],vals[3],vals[4]};fn.c[pc]=e end end;if actualInstr~=expectedInstr then error('X71 instruction count '..tostring(actualInstr)..'/'..tostring(expectedInstr))end;return{k=constants,f=f,r=root}end";
+    let O = "O=function(t,P,id,pl,pu,a)local PACK=function(...)local z={...};z.n=select('#',...);return z end;local UNPACK;if table and type(UNPACK)=='function' then UNPACK=UNPACK elseif type(unpack)=='function' then UNPACK=unpack else UNPACK=function(v,i,j)i=i or 1;j=j or #v;if i>j then return end;return v[i],UNPACK(v,i+1,j)end end;local M=function(v,n)return{z=1,n=n,v=v}end;local I=function(v)return type(v)=='table'and v.z==1 end;local GE=(type(getgenv)=='function'and getgenv())or nil;local RE=(type(getrenv)=='function'and getrenv())or nil;local FE;if type(getfenv)=='function'then local ok,e=pcall(getfenv,0);if ok then FE=e end end;local EE=type(_ENV)=='table'and _ENV or nil;local G=GE or RE or FE or EE or _G;local GG=function(k)local v=GE and GE[k]or nil;if v~=nil then return v end;v=RE and RE[k]or nil;if v~=nil then return v end;v=FE and FE[k]or nil;if v~=nil then return v end;v=EE and EE[k]or nil;if v~=nil then return v end;v=_G and _G[k]or nil;if v~=nil then return v end;v=G and G[k]or nil;if v~=nil then return v end;error('X71 global '..tostring(k))end;local SG=function(k,v)if GE then GE[k]=v elseif RE then RE[k]=v elseif FE then FE[k]=v elseif EE then EE[k]=v else G[k]=v end end;local U=function(x)x=x%4294967296;if x<0 then x=x+4294967296 end;return x end;local S=function(x)x=U(x);if x>=2147483648 then return x-4294967296 end;return x end;local B=function(x,y,m)x=U(x);y=U(y);local r=0;local b=1;for i=1,32 do local a=x%2>=1;local c=y%2>=1;if(m==1 and a and c)or(m==2 and(a or c))or(m==3 and(a~=c))then r=r+b end;x=math.floor(x/2);y=math.floor(y/2);b=b*2 end;return S(r)end;local H=function(x,y,m)local n=math.floor(y);if n<0 then n=-n;m=m==1 and 2 or 1 end;if n>=32 then if m==1 then return 0 end;return S(x)<0 and -1 or 0 end;local u=U(x);if m==1 then return S(u*2^n%4294967296)end;return math.floor(S(x)/2^n)end;local function N(o,x,y)if o==1 then return x+y elseif o==2 then return x-y elseif o==3 then return x*y elseif o==4 then return x/y elseif o==5 then return x%y elseif o==6 then return x^y elseif o==7 then return x..y elseif o==8 then return x==y elseif o==9 then return x~=y elseif o==10 then return x<y elseif o==11 then return x>y elseif o==12 then return x<=y elseif o==13 then return x>=y elseif o==14 then return math.floor(x/y) elseif o==15 then return B(x,y,1) elseif o==16 then return B(x,y,2) elseif o==17 then return B(x,y,3) elseif o==18 then return H(x,y,1) elseif o==19 then return H(x,y,2) end;error('X71 bin '..tostring(o)..':'..tostring(x)..':'..tostring(y))end;local function A(o,x)if o==1 then return not x elseif o==2 then return -x elseif o==3 then return#x elseif o==4 then return S(4294967295-U(x)) end;error('X71 unary')end;local function V(fn,a)if type(fn)~='function'then error('X71 call '..tostring(type(fn))..':'..tostring(fn))end;local ok,r=pcall(function()return PACK(fn(UNPACK(a,1,a.n or#a)))end);if not ok then error(r)end;if r.n==1 and I(r[1])then return r[1]end;return M(r,r.n)end;local function D32(a,b)local al=a%65536;local ah=math.floor(a/65536);local bl=b%65536;local bh=math.floor(b/65536);return(al*bl+(al*bh+ah*bl)*65536)%4294967296 end;local function INV(fn,v)local z=fn.z;if z.tokens then local pc=z.tokens[v];if not pc then error('X71 target token')end;return pc end;return D32((v-z.add)%4294967296,z.inv)end;local function CINV(fn,v)local z=fn.k;return D32((v-z.add)%4294967296,z.inv)end;local function LINV(fn,v)local z=fn.x;if not z then return v end;return D32((v-z.add)%4294967296,z.inv)end;local X;local F=function(i,l,u)return function(...)return X(t,P,i,l,u,PACK(...))end end;X=function(t,P,id,pl,pu,a)local fn=P.f[id+1];if not fn then error('X71 fn '..tostring(id)..'/'..tostring(#P.f))end;local lc={};for i=1,fn.l do lc[i]={v=nil}end;local uv={};for i=1,#fn.u do local q=fn.u[i];local z=q[1]==0 and pl and pl[q[2]+1]or pu and pu[q[2]+1];if not z then error('X71 upvalue')end;uv[i]=z end;for i=1,#fn.p do local q=fn.p[i]+1;if q>0 and q<=#lc then lc[q].v=a[i]end end;local va={n=0};if fn.v then for i=#fn.p+1,a.n do va.n=va.n+1;va[va.n]=a[i]end end;local r={};local pc=1;local lp={};local steps=0;while pc<=#fn.c do steps=steps+1;if steps>5000000 then error('X71 step')end;local e=fn.c[(fn.y and fn.y[pc] or pc)];pc=pc+1;local o=fn.q[e[1]];if not o then error('X71 opcode')end;local a1,b,c,d=e[2],e[3],e[4],e[5];if o==1 then elseif o==2 or o==41 then r[a1]=P.k[CINV(fn,b)+1] elseif o==3 or o==42 then local q=lc[LINV(fn,b)+1];r[a1]=q and q.v elseif o==4 or o==43 then local la=LINV(fn,a1);lc[la+1]=lc[la+1]or{v=nil};lc[la+1].v=r[b] elseif o==5 then r[a1]=GG(P.k[CINV(fn,b)+1]) elseif o==6 then SG(P.k[CINV(fn,a1)+1],r[b]) elseif o==36 then local q=uv[b+1];if not q then error('X71 upvalue')end;r[a1]=q.v elseif o==37 then local q=uv[a1+1];if not q then error('X71 upvalue')end;q.v=r[b] elseif o==7 then local q=r[b];r[a1]=q and q[P.k[CINV(fn,c)+1]] elseif o==8 then local q=r[a1];if not q then error('X71 member')end;q[P.k[CINV(fn,b)+1]]=r[c] elseif o==9 then local q=r[b];r[a1]=q and q[r[c]] elseif o==10 then local q=r[a1];if not q then error('X71 index')end;q[r[b]]=r[c] elseif o==11 then local fid=D32((b-fn.f.add)%4294967296,fn.f.inv);r[a1]=F(fid,lc,uv) elseif o==12 or o==45 then r[a1]=N(d,r[b],r[c]) elseif o==13 then r[a1]=A(c,r[b]) elseif o==14 then r[a1]={} elseif o==15 then r[a1]=va[1] elseif o==54 then r[a1]=M(va,va.n) elseif o==16 or o==44 then r[a1]=r[b] elseif o==17 or o==18 then local q={};for i=1,c do q[i]=r[b+i]end;local v=V(r[b],q);r[a1]=o==18 and v or v.v[1] elseif o==19 or o==20 then local q=r[b];local w={q};for i=1,d do w[i+1]=r[b+i]end;local cm=CINV(fn,c);local v=V(q[P.k[cm+1]],w);r[a1]=o==20 and v or v.v[1] elseif o==55 then local q={};for i=1,c do q[i]=r[b+i]end;local w=r[d];if I(w)then for i=1,w.n do q[c+i]=w.v[i]end else q[c+1]=w end;q.n=c+(I(w)and w.n or 1);r[a1]=V(r[b],q).v[1] elseif o==56 then local n=d%65536;local q=math.floor(d/65536)%65536;local w=r[b];local v={w};for i=1,n do v[i+1]=r[b+i]end;local x=r[q];if I(x)then for i=1,x.n do v[n+i+1]=x.v[i]end else v[n+2]=x end;v.n=n+(I(x)and x.n or 1)+1;local y=V(w[P.k[CINV(fn,c)+1]],v);r[a1]=y.v[1] elseif o==50 then return M({},0) elseif o==21 or o==47 then local v=r[a1];return I(v)and v or M({v},1) elseif o==22 then local v={};for i=1,b do v[i]=r[a1+i-1]end;return M(v,b) elseif o==23 then local v={};for i=1,c do v[i]=r[b+i-1]end;r[a1]=M(v,c) elseif o==51 then local v=r[b];local w=I(v)and v.v or{v};for i=1,c do r[a1+i-1]=w[i]end elseif o==52 then local v={};for i=1,b do v[i]=r[a1+i-1]end;local w=r[c];if I(w)then for i=1,w.n do v[b+i]=w.v[i]end else v[b+1]=w end;return M(v,b+(I(w)and w.n or 1)) elseif o==53 then local v=r[a1];local w=r[b];local q=I(w)and w.v or{w};for i=1,#q do v[c+i-1]=q[i]end elseif o==24 or o==46 then pc=INV(fn,e[2]) elseif o==25 then if not r[a1]then pc=INV(fn,b)end elseif o==26 then if r[a1]then pc=INV(fn,b)end elseif o==27 then local q={s=LINV(fn,a1),c=r[b],f=r[c],t=r[d]};if q.t==0 then error('X71 for')end;lp[#lp+1]=q elseif o==28 then local q=lp[#lp];local keep=q.t>0 and q.c<=q.f or q.t<0 and q.c>=q.f;if not keep then lp[#lp]=nil;pc=INV(fn,a1)else lc[q.s+1]=lc[q.s+1]or{v=nil};lc[q.s+1].v=q.c end elseif o==29 then local q=lp[#lp];q.c=q.c+q.t;local keep=q.t>0 and q.c<=q.f or q.t<0 and q.c>=q.f;if keep then lc[q.s+1].v=q.c else lp[#lp]=nil;pc=INV(fn,a1)end elseif o==30 then local q=r[a1];if not I(q)or q.n<3 then error('X71 iter')end;local w=q.v[1];local z=q.v[2];local y=q.v[3];local v=V(w,{z,y});local n=fn.i[c+1]or{};local x={fn=w,st=z,co=v.v[1],sl=n};if x.co==nil then pc=INV(fn,d)else lp[#lp+1]=x;for i=1,b do lc[n[i]+1]=lc[n[i]+1]or{v=nil};lc[n[i]+1].v=v.v[i]end end elseif o==31 then local q=lp[#lp];local w=V(q.fn,{q.st,q.co});q.co=w.v[1];if q.co==nil then lp[#lp]=nil;pc=INV(fn,b)else for i=1,#q.sl do lc[q.sl[i]+1].v=w.v[i]end;pc=INV(fn,a1)end elseif o==32 then lp[#lp]=nil;pc=INV(fn,a1)elseif o==33 then local la=LINV(fn,a1);local ld=LINV(fn,d);lc[ld+1]=lc[ld+1]or{v=nil};lc[ld+1].v=N(c,lc[la]and lc[la].v,P.k[CINV(fn,b)+1])elseif o==34 then local la=LINV(fn,a1);local lb=LINV(fn,b);local ld=LINV(fn,d);lc[ld+1]=lc[ld+1]or{v=nil};lc[ld+1].v=N(c,lc[la]and lc[la].v,lc[lb]and lc[lb].v)elseif o==35 then local v=V(GG(P.k[CINV(fn,b)+1]),{});r[a1]=c==1 and v or v.v[1]elseif o==38 or o==48 then if not N(c,r[a1],r[b])then pc=INV(fn,d)end elseif o==39 or o==49 then if N(c,r[a1],r[b])then pc=INV(fn,d)end else error('X71 opcode')end end;return M({nil},1)end;return X(t,P,id,pl,pu,a)end";
+    if (options.preferNativeGlobals === true) {
+        const oldEnv = "local G=GE or RE or FE or EE or _G;local GG=function(k)local v=GE and GE[k]or nil;if v~=nil then return v end;v=RE and RE[k]or nil;if v~=nil then return v end;v=FE and FE[k]or nil;if v~=nil then return v end;v=EE and EE[k]or nil;if v~=nil then return v end;v=_G and _G[k]or nil;if v~=nil then return v end;v=G and G[k]or nil;if v~=nil then return v end;error('X71 global '..tostring(k))end;local SG=function(k,v)if GE then GE[k]=v elseif RE then RE[k]=v elseif FE then FE[k]=v elseif EE then EE[k]=v else G[k]=v end end;";
+        const newEnv = "local G=RE or _G or FE or EE or GE;local function HG(env,k,gameOnly)local v=env and env[k]or nil;if gameOnly and k=='game' then if type(v)=='function'or v==nil then return nil end;local ok,m=pcall(function()return v.GetService end);if not ok or type(m)~='function'then return nil end end;return v end;local GG=function(k)if k=='game' then local v=HG(RE,k,true);if v~=nil then return v end;v=HG(_G,k,true);if v~=nil then return v end;v=HG(FE,k,true);if v~=nil then return v end;v=HG(EE,k,true);if v~=nil then return v end;v=HG(GE,k,true);if v~=nil then return v end;error('X71 global game unavailable')end;local v=GE and GE[k]or nil;if v~=nil then return v end;v=RE and RE[k]or nil;if v~=nil then return v end;v=FE and FE[k]or nil;if v~=nil then return v end;v=EE and EE[k]or nil;if v~=nil then return v end;v=_G and _G[k]or nil;if v~=nil then return v end;v=G and G[k]or nil;if v~=nil then return v end;error('X71 global '..tostring(k))end;local SG=function(k,v)if RE then RE[k]=v elseif FE then FE[k]=v elseif EE then EE[k]=v elseif _G then _G[k]=v elseif GE then GE[k]=v else G[k]=v end end;";
+        O = O.replace(oldEnv, newEnv);
+    }
+    if (options.polymorphicDispatch === true) {
+        O = polymorphDispatchSource(O, makeDispatchTokens());
+    }
+    const shell = options.polymorphicShell
+        ? (() => {
+            const random = makeShellNames();
+            return { payload: 'p', hi: 'h', lo: 'l', key: 'k', step: 's', mode: 'm', guard: 'g',
+                decoder: random.decoder, executor: random.executor, runner: random.runner };
+        })()
+        : { payload: 'p', hi: 'h', lo: 'l', key: 'k', step: 's', mode: 'm', guard: 'g',
+            decoder: 'D', executor: 'O', runner: 'R' };
+    const guard = options.runtimeGuard ? payloadGuardHash(payload, hi, lo, seed, step, cipherMode) : 0;
+    const guardField = options.runtimeGuard ? "," + shell.guard + "=" + guard : "";
+    let R = options.runtimeGuard
+        ? "R=function(t,...)local PACK=function(...)local z={...};z.n=select('#',...);return z end;local h=2166136261;for i=1,#t.p do h=(h+string.byte(t.p,i)*i+17)%4294967296 end;for j=1,#t.h do h=(h+string.byte(t.h,j)*(j+2)+31)%4294967296 end;for j=1,#t.l do h=(h+string.byte(t.l,j)*(j+2)+31)%4294967296 end;h=(h+(t.k%256)*257+(t.s%256)*65537+(t.m%256)*104729)%4294967296;if h~=t.g then error('X71 integrity guard')end;local P=t:D();local v=t:O(P,P.r,nil,nil,PACK(...));return v.v[1]end"
+        : "R=function(t,...)local PACK=function(...)local z={...};z.n=select('#',...);return z end;local P=t:D();local v=t:O(P,P.r,nil,nil,PACK(...));return v.v[1]end";
+    if (options.purgePayload === true) {
+        R = R.replace("local P=t:D();", "local P=t:D();t.p=nil;t.h=nil;t.l=nil;t.k=nil;t.s=nil;t.m=nil;t.g=nil;");
+    }
+    // D/O/R are generated as source fragments. X7.2 randomizes the public
+    // field names on every build while preserving the VM semantics.
+    const bindShell = src => src
+        .replaceAll('t.p', 't.' + shell.payload)
+        .replaceAll('t.h', 't.' + shell.hi)
+        .replaceAll('t.l', 't.' + shell.lo)
+        .replaceAll('t.k', 't.' + shell.key)
+        .replaceAll('t.s', 't.' + shell.step)
+        .replaceAll('t.g', 't.' + shell.guard)
+        .replaceAll('t:D(', 't:' + shell.decoder + '(')
+        .replaceAll('t:O(', 't:' + shell.executor + '(')
+        .replaceAll('t:R(', 't:' + shell.runner + '(');
+    const boundD = bindShell(D);
+    const boundO = bindShell(O);
+    const boundR = bindShell(R);
+    const object =
+        shell.payload + "=" + luaQuote(payload) +
+        "," + shell.hi + "=" + luaQuote(hi) +
+        "," + shell.lo + "=" + luaQuote(lo) +
+        "," + shell.key + "=" + seed +
+        "," + shell.step + "=" + step +
+        "," + shell.mode + "=" + cipherMode +
+        guardField +
+        "," + shell.decoder + "=(" + boundD.slice(boundD.indexOf("=") + 1) + ")" +
+        "," + shell.executor + "=(" + boundO.slice(boundO.indexOf("=") + 1) + ")" +
+        "," + shell.runner + "=(" + boundR.slice(boundR.indexOf("=") + 1) + ")";
+    return "return ({" + object + "}):" + shell.runner + "(...)"
+
+}
+
+class X71CodeGenerator {
+    generate(source, options = {}) {
+        if (typeof source !== 'string' || !source.trim()) throw new Error('El código Lua/Luau está vacío.');
+        const preset = resolvePreset(options.preset);
+        const native = buildNativeProgram(source, { polymorphOptions: preset.polymorph });
+        native.metadata = { ...(native.metadata || {}), strengthPreset: preset.name, engine: 'X7.1 layered' };
+        const program = buildEmissionPlan(native, {
+            backend: options.backend === undefined ? preset.backend : options.backend,
+            diversify: options.diversify || preset.diversify,
+            registers: { ...(options.registers || preset.registers || {}), chance: 0 },
+            isa: options.isa || preset.isa
+        });
+        return x71Loader(program);
+    }
+}
+X71CodeGenerator.buildContainer = buildContainer;
+X71CodeGenerator.x71Loader = x71Loader;
+X71CodeGenerator.payloadGuardHash = payloadGuardHash;
+module.exports = X71CodeGenerator;

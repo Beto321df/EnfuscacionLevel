@@ -19,7 +19,7 @@ function isZ3Loader(code) {
     );
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
     const DB_URL = 'https://loaderz1-default-rtdb.firebaseio.com';
     const SECRET = process.env.FIREBASE_SECRET;
 

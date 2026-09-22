@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const { OPS, BIN } = require('./compiler3');
 const { validateIR } = require('./ir');
+const { analyzeStackHeights } = require('./registerVm');
 
 function rand(min, max) { return crypto.randomInt(min, max + 1); }
 
@@ -367,10 +368,17 @@ function injectDistributedOpaqueGuards(program, options = {}) {
         }
 
         const positions = [];
+        let heights;
+        try {
+            heights = analyzeStackHeights(code);
+        } catch (_) {
+            continue;
+        }
         for (let pos = interval; pos < code.length; pos += interval) {
             const position = pos + 1;
             if (targets.has(position)) continue;
             if (code[pos - 1] && targetFields(code[pos - 1][0]).length > 0) continue;
+            if ((heights.get(position) || 0) !== 0) continue;
             positions.push(position);
         }
         if (!positions.length) continue;

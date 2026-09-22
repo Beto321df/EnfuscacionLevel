@@ -4,22 +4,10 @@ const { buildEmissionPlan } = require('../zlang/emitter');
 const { resolvePreset } = require('../zlang/presets');
 const { hardenProgram } = require('../zlang/x72Hardening');
 
-const MAX_OUTPUT = 100 * 1024;
+const MAX_OUTPUT = 1024 * 1024;
 
 function hardeningPlan(name, attempt, sourceLines) {
     const max = String(name).toLowerCase() === 'maximum';
-    // Large real-world scripts need density, not dozens of extra IR nodes.
-    // Keep the semantic hardening layers enabled, but make them sparse as the
-    // source grows so the final payload stays practical for script executors.
-    if (sourceLines > 250) {
-        const large = [
-            { stringChance: 0.28, numberChance: 0.22, opaqueMin: 24, distributedMin: 192, interval: 192, decoys: 0 },
-            { stringChance: 0.18, numberChance: 0.14, opaqueMin: 48, distributedMin: 320, interval: 320, decoys: 0 },
-            { stringChance: 0.10, numberChance: 0.08, opaqueMin: 72, distributedMin: 512, interval: 512, decoys: 0 },
-            { stringChance: 0.04, numberChance: 0.04, opaqueMin: 128, distributedMin: 1024, interval: 1024, decoys: 0 }
-        ];
-        return large[Math.min(attempt, large.length - 1)];
-    }
     const profiles = max
         ? [
             { stringChance: 0.82, numberChance: 0.68, opaqueMin: 8, distributedMin: 48, interval: 48, decoys: 6 },
@@ -32,7 +20,13 @@ function hardeningPlan(name, attempt, sourceLines) {
             { stringChance: 0.64, numberChance: 0.50, opaqueMin: 14, distributedMin: 72, interval: 72, decoys: 2 },
             { stringChance: 0.48, numberChance: 0.38, opaqueMin: 22, distributedMin: 112, interval: 112, decoys: 0 }
         ];
-    return profiles[Math.min(attempt, profiles.length - 1)];
+    const base = profiles[Math.min(attempt, profiles.length - 1)];
+    // Very large sources already provide plenty of semantic material. Avoid
+    // multiplying the IR excessively before we know whether the payload fits.
+    if (sourceLines > 3500 && attempt === 0) {
+        return { ...base, stringChance: Math.min(base.stringChance, 0.70), numberChance: Math.min(base.numberChance, 0.56), interval: Math.max(base.interval, 64) };
+    }
+    return base;
 }
 
 class X72CodeGenerator {
@@ -49,12 +43,8 @@ class X72CodeGenerator {
 
         for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
             try {
-                const largeSource = lineCount > 250;
-                const polymorphOptions = largeSource
-                    ? { ...(preset.polymorph || {}), chance: 0, maxPerFunction: 0 }
-                    : preset.polymorph;
                 const native = buildNativeProgram(source, {
-                    polymorphOptions
+                    polymorphOptions: preset.polymorph
                 });
 
                 native.metadata = {
@@ -96,18 +86,13 @@ class X72CodeGenerator {
                     preferNativeGlobals: true,
                     purgePayload: true,
                     encodeLocalOperands: true,
-                    // For large scripts, compact routing keeps the same logical
-                    // indirection without spending 8-16 bytes per instruction.
-                    encodeInstructionRoute: lineCount <= 250,
+                    encodeInstructionRoute: true,
                     encodeOperandFeedback: true,
                     encodeConstantRoute: true,
-                    encodeTargetTokens: !(lineCount > 500 && attempt >= 2),
-                    compactRoutes: true,
-                    variableOperands: true,
+                    encodeTargetTokens: true,
                     polymorphicShell: true,
                     polymorphicDispatch: true,
                     rollingPayload: true,
-                    compactPayload: true,
                     lazyConstants: true
                 });
 

@@ -71,14 +71,14 @@ for(let i=0;i<4;i+=1){
     const out=new CodeGenerator().generate(source,{preset:'strong'});
     assert.strictEqual(typeof out,'string');
     assert.strictEqual(out.includes('\n'),false,'X7.1 debe ser una sola línea');
-    assert(out.startsWith('return({'),'X7.1 debe usar la carcasa compacta sin dependencias externas');
-    const shellFunctions = (out.match(/,[A-Za-z]=\(function/g) || []).length;
-    assert(shellFunctions >= 3,'X7.1 debe incluir decoder, VM y runner propios');
+    assert(out.startsWith('return(function('),'X7.1 debe usar una carcasa anónima compacta');
+    const shellFunctions = (out.match(/local [A-Za-z]=\(function\(/g) || []).length;
+    assert.strictEqual(shellFunctions,2,'X7.1 debe incluir decoder y VM anónimos');
     assert(!out.includes('table.pack'),'X7.1 no debe depender de table.pack');
     assert(!out.includes('table.unpack'),'X7.1 no debe depender de table.unpack');
     assert(out.includes('setmetatable('),'X7.1 ahora usa lazy constants mediante metatable');
     assert(out.includes("local PACK=function"),'X7.1 debe incluir pack propio');
-    assert(/}\):[A-Za-z]\(\.\.\.\)$/.test(out),'X7.1 debe terminar en un runner compacto');
+    assert(out.endsWith(',...)'),'X7.1 debe terminar en la invocación anónima');
     assert(!/\bbit32\b|\bbit64\b|\bxor\b/i.test(out),'X7.1 no debe depender de APIs bitwise prohibidas');
     for(const marker of ['Z-Nexus','makeCounter','counterA','transform']){
         assert(!out.includes(marker),'X7.1 no debe exponer un identificador fuente');
@@ -132,7 +132,7 @@ assert(guiLikeOut.startsWith('return({'),'X7.1 debe aceptar una carga GUI-like d
 assert.strictEqual(guiLikeOut.includes('\n'),false,'X7.1 GUI-like output debe seguir en una línea');
 
 const longOut=new CodeGenerator().generate(longSource,{preset:'strong'});
-assert(longOut.startsWith('return({'),'X7.1 acepta 5000 líneas');
+assert(longOut.startsWith('return(function('),'X7.1 acepta 5000 líneas');
 assert.strictEqual(longOut.includes('\n'),false,'X7.1 5000-line output sigue en una línea');
 luaparse.parse(longOut,{wait:false,comments:false,luaVersion:'5.1'});
 

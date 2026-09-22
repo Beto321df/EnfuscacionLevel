@@ -27,7 +27,14 @@ module.exports = async function handler(req, res) {
 
     if (req.method === 'GET') {
         const { user } = req.query;
-        if (!user) return res.status(400).json({ msg: 'Usuario no proporcionado' });
+        if (!user) {
+            return res.status(200).json({
+                ok: true,
+                scripts: {},
+                authenticated: false,
+                msg: 'Usuario requerido para cargar scripts.'
+            });
+        }
         try {
             const cleanUser = user.replace(/[^a-zA-Z0-9_-]/g, '');
             const userScriptsRes = await fetch(`${DB_URL}/users/${cleanUser}/user_scripts.json?auth=${SECRET}`);

@@ -96,9 +96,7 @@ for(let i=0;i<4;i+=1){
     assert.strictEqual(out.includes('\\n'),false,'X7 complex regression must remain one line');
 }
 
-const longSource=Array.from({length:4999},(_,i)=>`local v${i}= ${i}`).join('\\n')+
-    '\\nprint(v4998)';
-const longOut=new CodeGenerator().generate(longSource,{preset:'strong'});
+const longSource=Array.from({length:4999},(_,i)=>`local v${i}= ${i}`).join('\n')+\n    '\nprint(v4998)';\nconst longOut=new CodeGenerator().generate(longSource,{preset:'strong'});
 assert(longOut.startsWith('return setmetatable({p='),'X7 debe aceptar un script de 5000 líneas');
 assert.strictEqual(longOut.includes('\\n'),false,'X7 5000-line output must remain one line');
 

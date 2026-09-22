@@ -75,12 +75,12 @@ assert.deepStrictEqual(hardenedOutput,hardenedBaselineOutput,'X7.2 IR hardening 
 for(let i=0;i<2;i+=1){
     const out=new X72().generate(source,{preset:'maximum'});
     assert.strictEqual(out.includes('\\n'),false,'X7.2 debe ser una sola línea');
-    assert(out.startsWith('return({'),'X7.2 debe reutilizar el contenedor X7.1');
-    const shellFunctions = (out.match(/,[A-Za-z]=\(function/g) || []).length;
-    assert(shellFunctions >= 3,'X7.2 debe tener decoder, VM y runner polimórficos');
-    assert(!out.includes(',D=function'),'X7.2 no debe fijar el nombre del decoder');
-    assert(!out.includes(',O=function'),'X7.2 no debe fijar el nombre de la VM');
-    assert(!out.includes(',R=function'),'X7.2 no debe fijar el nombre del runner');
+    assert(out.startsWith('return(function('),'X7.2 debe reutilizar la carcasa anónima compacta');
+    const shellFunctions = (out.match(/local [A-Za-z]=\(function\(/g) || []).length;
+    assert.strictEqual(shellFunctions,2,'X7.2 debe tener decoder y VM anónimos');
+    assert(!out.includes('D=function'),'X7.2 no debe fijar el nombre del decoder');
+    assert(!out.includes('O=function'),'X7.2 no debe fijar el nombre de la VM');
+    assert(!out.includes('R=function'),'X7.2 no debe fijar el nombre del runner');
     assert(!/\\bbit32\\b|\\bbit64\\b|\\bxor\\b/i.test(out),'X7.2 no debe usar APIs bitwise prohibidas');
     for(const marker of ['Z-Nexus-Long-String','makeCounter','counterA','transform']){
         assert(!out.includes(marker),'X7.2 no debe exponer '+marker);
@@ -190,7 +190,7 @@ local final = finalize(result, total)
 print(state.name, final[1], final[2], final.sum, final.valid, nested.alpha.tag)`;
 
 const exactOut=new X72().generate(exactSource,{preset:'maximum'});
-assert(exactOut.startsWith('return ({p='),'X7.2 exact benchmark debe generarse');
+assert(exactOut.startsWith('return(function('),'X7.2 exact benchmark debe generarse');
 assert.strictEqual(exactOut.includes('\\n'),false,'X7.2 exact benchmark debe seguir en una sola línea');
 
 const a=new X72().generate(`local x=10
@@ -210,13 +210,13 @@ const mediumSource=Array.from({length:500},(_,i)=>[
 ].join('\n')).join('\n');
 const mediumOut=new X72().generate(mediumSource,{preset:'maximum'});
 assert(mediumOut.length<=100*1024,'X7.2 500-line output should stay at or below 100KB');
-assert(mediumOut.startsWith('return ({p='),'X7.2 medium benchmark debe generar');
+assert(mediumOut.startsWith('return(function('),'X7.2 medium benchmark debe generar');
 assert.strictEqual(mediumOut.includes('\\n'),false,'X7.2 medium benchmark debe seguir en una línea');
 luaparse.parse(mediumOut,{wait:false,comments:false,luaVersion:'5.1'});
 
 const longSource=Array.from({length:4999},(_,i)=>`local v${i}=${i}`).join('\n')+'\nprint(v4998)';
 const longOut=new X72().generate(longSource,{preset:'strong'});
-assert(longOut.startsWith('return ({p='),'X7.2 debe aceptar 5000 líneas');
+assert(longOut.startsWith('return(function('),'X7.2 debe aceptar 5000 líneas');
 assert.strictEqual(longOut.includes('\\n'),false,'X7.2 5000 líneas debe seguir en una línea');
 luaparse.parse(longOut,{wait:false,comments:false,luaVersion:'5.1'});
 

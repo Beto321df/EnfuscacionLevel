@@ -3,6 +3,7 @@ function getLuaParse() { if (!luaparse) luaparse = require('luaparse'); return l
 const { parse } = require('./parser');
 const { buildProgram, buildProgramFromAst } = require('./compiler3');
 const { normalizeIR, polymorphIR } = require('./ir');
+const { optimizeProgram } = require('./optimizer');
 
 function buildNativeProgram(source, options = {}) {
     if (typeof source !== 'string' || !source.trim()) throw new TypeError('Z3: el código fuente está vacío.');
@@ -11,6 +12,7 @@ function buildNativeProgram(source, options = {}) {
     try {
         const ast = parse(source, options);
         let program = buildProgramFromAst(ast);
+        if (options.optimize !== false) program = optimizeProgram(program, { enabled: true });
         if (shouldPolymorph) program = polymorphIR(program, options.polymorphOptions);
         return normalizeIR(program, { frontend: 'native', fallback: false, polymorphic: shouldPolymorph });
     } catch (nativeError) {
@@ -46,6 +48,7 @@ function buildNativeProgram(source, options = {}) {
             throw compilerFallbackError;
         }
 
+        if (options.optimize !== false) program = optimizeProgram(program, { enabled: true });
         if (shouldPolymorph) program = polymorphIR(program, options.polymorphOptions);
         return normalizeIR(program, {
             frontend: 'luaparse-fallback',

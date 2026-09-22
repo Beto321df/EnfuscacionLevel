@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const { OPS, BIN } = require('./compiler3');
 const { validateIR } = require('./ir');
-const { analyzeStackHeights } = require('./registerVm');
+const { analyzeStackHeights, registerizeProgram } = require('./registerVm');
 
 function rand(min, max) { return crypto.randomInt(min, max + 1); }
 
@@ -462,6 +462,17 @@ function safeHardeningPass(program, name, pass, skipped) {
     try {
         pass();
         validateIR(program);
+
+        // Hardening must not create a CFG that the register backend cannot
+        // lower. Probe a detached clone immediately so a risky mutation is
+        // rolled back before emission/control-flow permutation.
+        const probe = {
+            ...program,
+            constants: JSON.parse(JSON.stringify(program.constants || [])),
+            functions: JSON.parse(JSON.stringify(program.functions || [])),
+            metadata: JSON.parse(JSON.stringify(program.metadata || {}))
+        };
+        registerizeProgram(probe);
         return true;
     } catch (error) {
         restoreProgram(program, snapshot);

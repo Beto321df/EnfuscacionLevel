@@ -57,6 +57,7 @@ for k,v in next,t do print(k,v) end`;
 try {
   const native=buildNativeProgram(genericSource,{fallback:false,polymorphOptions:{chance:0,maxPerFunction:0}});
   console.log('NATIVE',JSON.stringify(native.functions[0].code.slice(0,16)));
+  native.functions[0].__debugCompact=true;
   const reg=registerizeProgram(JSON.parse(JSON.stringify(native)));
   validateRegisterProgram(reg);
   const output=[];

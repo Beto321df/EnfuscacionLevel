@@ -1,6 +1,7 @@
 const { buildNativeProgram }=require('../src/zlang/nativeCompiler');
 const { buildEmissionPlan }=require('../src/zlang/emitter');
 const { registerizeProgram }=require('../src/zlang/registerVm');
+const { executeProgram }=require('../src/zlang/referenceVm');
 const { REG_OPS, REG_ALIAS_BASE, REGISTER_FIELDS, validateRegisterProgram }=require('../src/zlang/registerVm');
 
 const cases=[

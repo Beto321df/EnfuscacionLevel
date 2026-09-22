@@ -2,7 +2,8 @@
   "name": "z-obfuscator",
   "version": "3.2.0-dev.7.3",
   "description": "Motor de Ofuscación Luau para Roblox con frontend Z3, ZIR, register VM polimórfica, bytecode protegido y runtime virtualizado",
-  "main": "api/obfuscate.js",
+  "main": "server.js",
+  "private": true,
   "scripts": {
     "test": "node tests/runTest.js && node tests/z3-native.js && node tests/emission.js && node tests/evolution.js && node tests/advanced-evolution.js && node tests/architecture.js && node tests/multi-values.js && node tests/generator-names.js && node tests/x7.js && node tests/x71.js && node tests/x72.js && node tests/randomized-stability.js",
     "bench": "node tests/benchmark.js",

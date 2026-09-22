@@ -1,6 +1,7 @@
 const X72=require('../src/generator/x72Codegen');
 const X71=require('../src/generator/x71Codegen');
 const fs=require('fs');
+const zlib=require('zlib');
 const {buildNativeProgram}=require('../src/zlang/nativeCompiler');
 const {registerizeProgram}=require('../src/zlang/registerVm');
 const {buildEmissionPlan}=require('../src/zlang/emitter');
@@ -12,6 +13,8 @@ const benchNative=buildNativeProgram(source,{fallback:false});
 const benchPlan=buildEmissionPlan(benchNative,{backend:'register'});
 const packed=X71.buildContainer(benchPlan,{runtimeGuard:true,preferNativeGlobals:true,purgePayload:true,encodeLocalOperands:true,encodeInstructionRoute:false,encodeOperandFeedback:true,encodeConstantRoute:true,encodeTargetTokens:false,polymorphicShell:false,polymorphicDispatch:false,rollingPayload:true,lazyConstants:true});
 console.log('RAW CONTAINER',packed.bytes.length,'bytes');
+const deflated=zlib.deflateRawSync(Buffer.from(packed.bytes),{level:9});
+console.log('DEFLATE RAW',deflated.length,'bytes');
 for(const optimize of [false,true]){
   try{
     const p=buildNativeProgram(source,{fallback:false,optimize,polymorphic:false});

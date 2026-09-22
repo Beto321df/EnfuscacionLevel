@@ -19,12 +19,22 @@ for(const optimize of [false,true]){
   }catch(e){console.log('opt',optimize,'NATIVE ERROR',e.stack||e.message)}
 }
 
-const X72=require('../src/generator/x72Codegen');
-const gen=new X72();
-const profiles=[
-  ['current',{}],
-  ['dense-28-22',{stringSplitChance:0.28,numberSplitChance:0.22,opaqueMinFunctionLength:24,distributedOpaqueMinFunctionLength:192,distributedOpaqueInterval:192,decoyFunctions:0}],
-  ['dense-18-14',{stringSplitChance:0.18,numberSplitChance:0.14,opaqueMinFunctionLength:48,distributedOpaqueMinFunctionLength:320,distributedOpaqueInterval:320,decoyFunctions:0}],
-  ['dense-10-08',{stringSplitChance:0.10,numberSplitChance:0.08,opaqueMinFunctionLength:72,distributedOpaqueMinFunctionLength:512,distributedOpaqueInterval:512,decoyFunctions:0}],
+
+const hard=require('../src/zlang/x72Hardening');
+const {validateIR}=require('../src/zlang/ir');
+const {buildEmissionPlan}=require('../src/zlang/emitter');
+const {buildNativeProgram}=require('../src/zlang/nativeCompiler');
+const native2=buildNativeProgram(source,{fallback:false,optimize:true,polymorphic:false});
+const stages=[
+ ['base',()=>{}],
+ ['strings',()=>hard.splitStringConstants(native2,{chance:0.28})],
+ ['numbers',()=>hard.splitNumericConstants(native2,{chance:0.22})],
+ ['opaque',()=>hard.injectOpaqueGuards(native2,{minFunctionLength:24})],
+ ['distributed',()=>hard.injectDistributedOpaqueGuards(native2,{minFunctionLength:192,interval:192})],
+ ['decoys',()=>hard.injectDecoyFunctions(native2,{count:0})],
+ ['compact',()=>{}]
 ];
-for(const [name,opts] of profiles){try{const out=gen.generate(source,{preset:'maximum',...opts});console.log('X72',name,'chars',out.length);}catch(e){console.log('X72',name,'ERROR',e.message)}}
+for(const [name,pass] of stages){
+ try{pass(); validateIR(native2); const ins=native2.functions.reduce((n,f)=>n+f.code.length,0); const e=buildEmissionPlan(native2,{backend:'register'}); console.log('STAGE',name,'ins',ins,'emitIns',e.functions.reduce((n,f)=>n+f.code.length,0),'OK');}
+ catch(e){console.log('STAGE',name,'ERROR',e.message);break;}
+}

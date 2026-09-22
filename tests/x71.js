@@ -105,7 +105,7 @@ const { OPS: METHOD_OPS } = require('../src/zlang/compiler3');
 const methodProgram = buildMethodProgram(`local service=game:GetService("ReplicatedStorage")
 print(service)`, { fallback: false, polymorphOptions: { chance: 0, maxPerFunction: 0 } });
 const methodCode = methodProgram.functions[0].code;
-assert(methodCode.some(ins => ins[0] === METHOD_OPS.CALL_METHOD), 'colon calls must lower to CALL_METHOD');
+assert(methodCode.some(ins => ins[0] === METHOD_OPS.CALL_METHOD || ins[0] === METHOD_OPS.FUSED_GLOBAL_CALL), 'colon calls must lower to a method-aware call');
 assert(!methodCode.some(ins => ins[0] === METHOD_OPS.GET_MEMBER), 'colon calls must not emit GET_MEMBER for the receiver');
 
 const longSource=Array.from({length:4999},(_,i)=>`local v${i}= ${i}`).join('\n')+'\nprint(v4998)';

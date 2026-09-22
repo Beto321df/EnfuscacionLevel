@@ -378,7 +378,7 @@ function injectDistributedOpaqueGuards(program, options = {}) {
             const position = pos + 1;
             if (targets.has(position)) continue;
             if (code[pos - 1] && targetFields(code[pos - 1][0]).length > 0) continue;
-            if ((heights.get(position) || 0) !== 0) continue;
+            if (!heights.has(position) || heights.get(position) !== 0) continue;
             positions.push(position);
         }
         if (!positions.length) continue;

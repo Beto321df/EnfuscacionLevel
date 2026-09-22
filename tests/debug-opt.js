@@ -1,45 +1,50 @@
 const util=require('util');
 const { buildNativeProgram }=require('../src/zlang/nativeCompiler');
-const { buildEmissionPlan }=require('../src/zlang/emitter');
+const { buildEmissionPlan, shuffleControlFlow }=require('../src/zlang/emitter');
+const { registerizeProgram, fuseRegisterComparisons, permuteRegisterFile, diversifyRegisterIsa, validateRegisterProgram }=require('../src/zlang/registerVm');
 const { executeProgram }=require('../src/zlang/referenceVm');
-
 const source=`local total=0
 for i=1,5 do if i==3 then continue end total=total+i end
 print(total)`;
 
-function restore(p){
+function restoreOpcode(p){
   const out=JSON.parse(JSON.stringify(p));
   for(const fn of out.functions){
-    if(Array.isArray(fn.opcodeDecode)&&fn.opcodeDecode.length>1){
+    if(Array.isArray(fn.opcodeDecode)&&fn.opcodeDecode.length>1)
       for(const ins of fn.code) ins[0]=fn.opcodeDecode[ins[0]]??ins[0];
-    }
   }
   return out;
 }
 function run(label,p){
-  const out=[];
-  executeProgram(restore(p),{print:(...a)=>out.push(...a)});
-  console.log(label,util.inspect(out));
-  return out;
+  try {
+    const out=[];
+    executeProgram(restoreOpcode(p),{print:(...a)=>out.push(...a)});
+    console.log(label,util.inspect(out));
+  } catch(e){ console.log(label,'ERROR',e.message); }
 }
+const native=buildNativeProgram(source,{fallback:false,optimize:true,polymorphic:true});
+console.log('NATIVE funcs',native.functions.length);
+run('native',native);
 
-for(const cfg of [
-  ['native-opt-poly-off',{fallback:false,optimize:true,polymorphic:false}],
-  ['native-opt-poly-on',{fallback:false,optimize:true,polymorphic:true}],
-  ['native-noopt-poly-on',{fallback:false,optimize:false,polymorphic:true}]
-]){
-  const p=buildNativeProgram(source,cfg[1]);
-  console.log('\n'+cfg[0], 'code',JSON.stringify(p.functions[0].code));
-  run(cfg[0],p);
-}
+const reg=registerizeProgram(JSON.parse(JSON.stringify(native)));
+validateRegisterProgram(reg);
+run('registerize only',reg);
 
-for(const cfg of [
-  ['emit-opt-poly-on',{fallback:false,optimize:true,polymorphic:true}],
-  ['emit-noopt-poly-on',{fallback:false,optimize:false,polymorphic:true}],
-  ['emit-opt-poly-off',{fallback:false,optimize:true,polymorphic:false}]
-]){
-  const native=buildNativeProgram(source,cfg[1]);
-  const e=buildEmissionPlan(native,{backend:'register'});
-  console.log('\n'+cfg[0], 'code',JSON.stringify(e.functions[0].code),'meta',e.metadata.emission);
-  run(cfg[0],e);
-}
+const fused=JSON.parse(JSON.stringify(reg));
+fuseRegisterComparisons(fused);
+validateRegisterProgram(fused);
+run('registerize+fuse',fused);
+
+const shuffled=JSON.parse(JSON.stringify(native));
+for(const fn of shuffled.functions) fn.code=shuffleControlFlow(fn.code);
+const regSh=registerizeProgram(shuffled);
+validateRegisterProgram(regSh);
+run('shuffleCF+registerize',regSh);
+
+const fusedSh=JSON.parse(JSON.stringify(regSh));
+fuseRegisterComparisons(fusedSh);
+validateRegisterProgram(fusedSh);
+run('shuffleCF+registerize+fuse',fusedSh);
+
+const emitted=buildEmissionPlan(native,{backend:'register'});
+run('full emitter',emitted);

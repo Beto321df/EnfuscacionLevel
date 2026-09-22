@@ -15,7 +15,8 @@ function isZ3Loader(code) {
         (code.includes('Z3 opcode') && code.includes('__z')) ||
         code.includes('Z3-stable') ||
         (code.includes('return({L={') && code.includes('E=function') && code.includes('R=function')) ||
-        (code.includes('Z3 visual header') && code.includes('Z3 visual checksum'))
+        (code.includes('Z3 visual header') && code.includes('Z3 visual checksum')) ||
+        (code.startsWith('return({') && code.includes('=') && code.includes('=(function') && /}\):[A-Za-z]\\(\.\.\.\\)$/.test(code))
     );
 }
 
@@ -124,9 +125,18 @@ module.exports = async function handler(req, res) {
             if (protectedCode.length > 1024 * 1024) {
                 return res.status(413).json({ ok: false, msg: `La salida protegida supera el límite de 1 MB (${protectedCode.length} caracteres).`, stage: 'x72-size' });
             }
-            const isProtected = protectedCode.startsWith('return setmetatable({p=') || protectedCode.startsWith('return ({p=');
+            const isProtected =
+                protectedCode.startsWith('return setmetatable({p=') ||
+                protectedCode.startsWith('return ({p=') ||
+                (protectedCode.startsWith('return({') &&
+                    protectedCode.includes('=(function') &&
+                    /}\):[A-Za-z]\(\.\.\.\)$/.test(protectedCode));
             if (!isProtected) {
-                return res.status(500).json({ ok: false, msg: 'El motor X7 generó una salida protegida inválida.', stage: 'x7-output' });
+                return res.status(500).json({
+                    ok: false,
+                    msg: 'El motor X7 generó una salida protegida inválida.',
+                    stage: 'x7-output'
+                });
             }
             const createdAt = Date.now();
             const scriptPayload = { owner: cleanUser, code: protectedCode, createdAt };

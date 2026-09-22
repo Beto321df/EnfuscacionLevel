@@ -18,3 +18,13 @@ for(const optimize of [false,true]){
     }catch(e){console.log('  emitter ERROR',e.message)}
   }catch(e){console.log('opt',optimize,'NATIVE ERROR',e.stack||e.message)}
 }
+
+const X72=require('../src/generator/x72Codegen');
+const gen=new X72();
+const profiles=[
+  ['current',{}],
+  ['dense-28-22',{stringSplitChance:0.28,numberSplitChance:0.22,opaqueMinFunctionLength:24,distributedOpaqueMinFunctionLength:192,distributedOpaqueInterval:192,decoyFunctions:0}],
+  ['dense-18-14',{stringSplitChance:0.18,numberSplitChance:0.14,opaqueMinFunctionLength:48,distributedOpaqueMinFunctionLength:320,distributedOpaqueInterval:320,decoyFunctions:0}],
+  ['dense-10-08',{stringSplitChance:0.10,numberSplitChance:0.08,opaqueMinFunctionLength:72,distributedOpaqueMinFunctionLength:512,distributedOpaqueInterval:512,decoyFunctions:0}],
+];
+for(const [name,opts] of profiles){try{const out=gen.generate(source,{preset:'maximum',...opts});console.log('X72',name,'chars',out.length);}catch(e){console.log('X72',name,'ERROR',e.message)}}

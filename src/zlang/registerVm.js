@@ -417,7 +417,6 @@ function lowerFunction(fn) {
                     const key = stack[n - 2];
                     const value = stack[n - 1];
                     stack.length = n - 3;
-                    if (fn.__debugCompact) console.log('REGSET', pc, JSON.stringify(stack), obj, key, value);
                     emit(REG_OPS.SET_INDEX, obj, key, value);
                     break;
                 }
@@ -502,10 +501,14 @@ function lowerFunction(fn) {
                     noteHeight(stack);
                     break;
                 }
-                case OPS.DUP:
+                case OPS.DUP: {
                     if (!stack.length) throw new Error('Z registerizer: DUP vacío.');
-                    push(stack, stack[stack.length - 1]);
+                    const src = stack[stack.length - 1];
+                    const dst = stack.length;
+                    emit(REG_OPS.MOVE, dst, src);
+                    push(stack, dst);
                     break;
+                }
                 case OPS.POP:
                     pop(stack);
                     break;

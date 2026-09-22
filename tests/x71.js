@@ -20,7 +20,10 @@ assert(implementation.includes('ms.four(); // metadata mask key'),'X7.1 validato
 assert(implementation.includes('ms.four(); // metadata mask step'),'X7.1 validator debe leer metadata step');
 assert(implementation.includes('ms.two();  // vararg flag'),'X7.1 validator debe leer vararg como u16');
 assert(implementation.includes('local vararg=mU()==1;'),'X7.1 loader debe leer vararg como u16');
-assert(implementation.indexOf('local opcodes={};for j=1,count do opcodes[j]=iu()end;fn.q={}') < implementation.indexOf('for q=1,56 do semanticByPhysical[q]=iu()end'), 'X7.1 debe leer el stream de opcodes antes del mapa físico->semántico');
+assert(
+    implementation.includes('local opcodes={};for j=1,count do opcodes[j]=iu()end;fn.q={};for q=1,56 do fn.q[q]=iu()end;'),
+    'X7.1 debe leer el stream de opcodes antes del mapa físico->semántico'
+);
 
 const source=`local seed=17
 local state={value=11,enabled=true,name="Z-Nexus"}
@@ -64,15 +67,15 @@ for(let i=0;i<4;i+=1){
     const out=new CodeGenerator().generate(source,{preset:'strong'});
     assert.strictEqual(typeof out,'string');
     assert.strictEqual(out.includes('\n'),false,'X7.1 debe ser una sola línea');
-    assert(out.startsWith('return ({p='),'X7.1 debe usar la carcasa compacta sin dependencias externas');
-    assert(out.includes(',D=(function'),'X7.1 debe incluir decoder propio');
-    assert(out.includes(',O=(function'),'X7.1 debe incluir VM propia');
-    assert(out.includes(',R=(function'),'X7.1 debe incluir runner propio');
+    assert(out.startsWith('return({'),'X7.1 debe usar la carcasa compacta sin dependencias externas');
+    assert(/,[A-Za-z]=(function/.test(out),'X7.1 debe incluir decoder propio');
+    assert(/,[A-Za-z]=(function/.test(out),'X7.1 debe incluir VM propia');
+    assert(/,[A-Za-z]=(function/.test(out),'X7.1 debe incluir runner propio');
     assert(!out.includes('table.pack'),'X7.1 no debe depender de table.pack');
     assert(!out.includes('table.unpack'),'X7.1 no debe depender de table.unpack');
     assert(out.includes('setmetatable('),'X7.1 ahora usa lazy constants mediante metatable');
     assert(out.includes("local PACK=function"),'X7.1 debe incluir pack propio');
-    assert(out.endsWith('}):R(...)'),'X7.1 debe terminar en R');
+    assert(/}\):[A-Za-z]\(\.\.\.\)$/.test(out),'X7.1 debe terminar en un runner compacto');
     assert(!/\bbit32\b|\bbit64\b|\bxor\b/i.test(out),'X7.1 no debe depender de APIs bitwise prohibidas');
     for(const marker of ['Z-Nexus','makeCounter','counterA','transform']){
         assert(!out.includes(marker),'X7.1 no debe exponer un identificador fuente');

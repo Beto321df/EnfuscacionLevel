@@ -63,6 +63,15 @@ function u32(out, v) {
     v = mod32(v);
     out.push(Math.floor(v / 16777216) % 256, Math.floor(v / 65536) % 256, Math.floor(v / 256) % 256, v % 256);
 }
+function putVarU32(out, value) {
+    let v = mod32(value);
+    do {
+        let b = v % 128;
+        v = Math.floor(v / 128);
+        if (v > 0) b += 128;
+        out.push(b);
+    } while (v > 0);
+}
 function readU32(bytes, at) {
     return bytes[at] * 16777216 + bytes[at + 1] * 65536 + bytes[at + 2] * 256 + bytes[at + 3];
 }
@@ -211,6 +220,8 @@ function buildContainer(program, options = {}) {
     const encodeOperandFeedback = options.encodeOperandFeedback === true;
     const encodeConstantRoute = options.encodeConstantRoute === true;
     const encodeTargetTokens = options.encodeTargetTokens === true;
+    const compactRoutes = options.compactRoutes === true;
+    const variableOperands = options.variableOperands === true;
     for (const fn of C.functions) for (const ins of fn.code) {
         if ((ins[0] === REG_OPS.BIN || ins[0] === REG_OPS.BIN_ALT) && (!Number.isInteger(ins[4]) || ins[4] < 1 || ins[4] > 19)) {
             throw new Error('X7.1: BIN semántico inválido '+String(ins[4]));
@@ -241,7 +252,8 @@ function buildContainer(program, options = {}) {
             logicalToPhysical[constantOrder[physicalIndex]] = physicalIndex;
         }
         for (let logicalIndex = 0; logicalIndex < C.constants.length; logicalIndex += 1) {
-            u32(constSection, logicalToPhysical[logicalIndex]);
+            if (compactRoutes) u16(constSection, logicalToPhysical[logicalIndex]);
+            else u32(constSection, logicalToPhysical[logicalIndex]);
         }
     }
     for (let physicalIndex = 0; physicalIndex < C.constants.length; physicalIndex += 1) {
@@ -329,13 +341,19 @@ function buildContainer(program, options = {}) {
             ? Array.from({ length: 4 }, () => rand(0, 0xFFFFFFFF) >>> 0)
             : [0, 0, 0, 0];
         const targetTokens = encodeTargetTokens ? (() => {
-            const used = new Set();
             const tokens = new Array(fn.code.length + 1);
-            for (let logicalPc = 1; logicalPc <= fn.code.length; logicalPc += 1) {
-                let token;
-                do token = rand(0, 0xFFFFFFFF) >>> 0; while (used.has(token));
-                used.add(token);
-                tokens[logicalPc] = token;
+            if (compactRoutes) {
+                if (fn.code.length > 65535) throw new Error('X7.1: target token compact excede 65535 instrucciones.');
+                const pool = shuffle(Array.from({ length: fn.code.length }, (_, n) => n + 1));
+                for (let logicalPc = 1; logicalPc <= fn.code.length; logicalPc += 1) tokens[logicalPc] = pool[logicalPc - 1];
+            } else {
+                const used = new Set();
+                for (let logicalPc = 1; logicalPc <= fn.code.length; logicalPc += 1) {
+                    let token;
+                    do token = rand(0, 0xFFFFFFFF) >>> 0; while (used.has(token));
+                    used.add(token);
+                    tokens[logicalPc] = token;
+                }
             }
             return tokens;
         })() : null;
@@ -354,7 +372,8 @@ function buildContainer(program, options = {}) {
         }
         if (encodeTargetTokens) {
             for (let logicalPc = 1; logicalPc <= fn.code.length; logicalPc += 1) {
-                u32(codeSection, targetTokens[logicalPc]);
+                if (compactRoutes) u16(codeSection, targetTokens[logicalPc]);
+                else u32(codeSection, targetTokens[logicalPc]);
             }
         }
         const physicalOrder = encodeInstructionRoute
@@ -366,7 +385,8 @@ function buildContainer(program, options = {}) {
                 logicalToPhysical[physicalOrder[physicalSlot - 1]] = physicalSlot;
             }
             for (let logicalPc = 1; logicalPc <= fn.code.length; logicalPc += 1) {
-                u32(codeSection, logicalToPhysical[logicalPc]);
+                if (compactRoutes) u16(codeSection, logicalToPhysical[logicalPc]);
+                else u32(codeSection, logicalToPhysical[logicalPc]);
             }
         }
         for (const logicalPc of physicalOrder) codeSection.push(fn.code[logicalPc - 1][0] & 255);
@@ -417,7 +437,8 @@ function buildContainer(program, options = {}) {
             let previous = 0;
             for (let j = 0; j < planes[p].length; j += 1) {
                 const v = mod32(planes[p][j] + planeKeys[p] + j * planeSteps[p] + mul32(previous, feedbackKeys[p]));
-                u32(codeSection, v);
+                if (variableOperands) putVarU32(codeSection, v);
+                else u32(codeSection, v);
                 previous = v;
             }
         }

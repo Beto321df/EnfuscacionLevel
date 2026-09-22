@@ -314,6 +314,10 @@ function injectOpaqueGuards(program, options = {}) {
     for (const fn of program.functions) {
         const code = fn.code || [];
         if (code.length < minLength) continue;
+        // Large functions with existing branches are the most sensitive to
+        // prefix relocation. Keep opaque guards on linear large functions and
+        // leave branch-heavy functions to the distributed guard pass.
+        if (code.length >= 96 && code.some(ins => targetFields(ins[0]).length > 0)) continue;
 
         const count = code.length >= 96 ? 3 : code.length >= 24 ? 2 : 1;
         const prefix = [];

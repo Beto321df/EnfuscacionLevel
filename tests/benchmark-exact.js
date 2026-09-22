@@ -1,4 +1,5 @@
 const X72=require('../src/generator/x72Codegen');
+const X71=require('../src/generator/x71Codegen');
 const fs=require('fs');
 const {buildNativeProgram}=require('../src/zlang/nativeCompiler');
 const {registerizeProgram}=require('../src/zlang/registerVm');
@@ -9,7 +10,7 @@ const exactGenerated=new X72().generate(source,{preset:'maximum'});
 console.log('X72 EXACT OUTPUT',exactGenerated.length,'chars');
 const benchNative=buildNativeProgram(source,{fallback:false});
 const benchPlan=buildEmissionPlan(benchNative,{backend:'register'});
-const packed=X72.buildContainer(benchPlan,{runtimeGuard:true,preferNativeGlobals:true,purgePayload:true,encodeLocalOperands:true,encodeInstructionRoute:false,encodeOperandFeedback:true,encodeConstantRoute:true,encodeTargetTokens:false,polymorphicShell:false,polymorphicDispatch:false,rollingPayload:true,lazyConstants:true});
+const packed=X71.buildContainer(benchPlan,{runtimeGuard:true,preferNativeGlobals:true,purgePayload:true,encodeLocalOperands:true,encodeInstructionRoute:false,encodeOperandFeedback:true,encodeConstantRoute:true,encodeTargetTokens:false,polymorphicShell:false,polymorphicDispatch:false,rollingPayload:true,lazyConstants:true});
 console.log('RAW CONTAINER',packed.bytes.length,'bytes');
 for(const optimize of [false,true]){
   try{

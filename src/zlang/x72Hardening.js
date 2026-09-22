@@ -368,9 +368,10 @@ function injectDistributedOpaqueGuards(program, options = {}) {
 
         const positions = [];
         for (let pos = interval; pos < code.length; pos += interval) {
-            if (targets.has(pos + 1)) continue;
+            const position = pos + 1;
+            if (targets.has(position)) continue;
             if (code[pos - 1] && targetFields(code[pos - 1][0]).length > 0) continue;
-            positions.push(pos + 1);
+            positions.push(position);
         }
         if (!positions.length) continue;
 
@@ -379,29 +380,18 @@ function injectDistributedOpaqueGuards(program, options = {}) {
         for (const position of positions) {
             const guard = makeOpaqueGuard(program, variant % 3 + 1);
             variant += 1;
-            // Keep guard targets local until we know the fragment's final
-            // position. Earlier inserts can shift this fragment by any amount.
             inserts.set(position, guard.code.map(ins => ins.slice()));
         }
 
-        const addedBefore = new Map();
-        const sorted = [...inserts.keys()].sort((a, b) => a - b);
-        let added = 0;
-        let nextIndex = 0;
-        for (let oldPc = 1; oldPc <= code.length + 1; oldPc += 1) {
-            while (nextIndex < sorted.length && sorted[nextIndex] === oldPc) {
-                added += inserts.get(sorted[nextIndex]).length;
-                nextIndex += 1;
-            }
-            addedBefore.set(oldPc, added);
-        }
-
+        // Build the mapping from the actual output layout. The previous
+        // implementation precomputed offsets and then inserted fragments,
+        // which made long backward jumps vulnerable to landing on the
+        // pre-guard address. That creates false stack merges in the
+        // registerizer. Here every old PC is mapped to the original
+        // instruction *after* its inserted guard.
         const oldToNew = new Map();
-        for (let oldPc = 1; oldPc <= code.length + 1; oldPc += 1) {
-            oldToNew.set(oldPc, oldPc + (addedBefore.get(oldPc) || 0));
-        }
-
         const output = [];
+
         for (let oldPc = 1; oldPc <= code.length; oldPc += 1) {
             const frag = inserts.get(oldPc);
             if (frag) {
@@ -416,15 +406,23 @@ function injectDistributedOpaqueGuards(program, options = {}) {
                 }
             }
 
-            const ins = code[oldPc - 1].slice();
+            oldToNew.set(oldPc, output.length + 1);
+            output.push(code[oldPc - 1].slice());
+        }
+        oldToNew.set(code.length + 1, output.length + 1);
+
+        // Remap only the original instructions. Guard-internal targets were
+        // already resolved against their own fragment above.
+        for (let oldPc = 1; oldPc <= code.length; oldPc += 1) {
+            const outputPc = oldToNew.get(oldPc);
+            const ins = output[outputPc - 1];
             for (const field of targetFields(ins[0])) {
                 if (oldToNew.has(ins[field])) ins[field] = oldToNew.get(ins[field]);
             }
-            output.push(ins);
         }
 
         fn.code = output;
-        inserted += sorted.length;
+        inserted += positions.length;
     }
 
     program.metadata = {
@@ -432,7 +430,6 @@ function injectDistributedOpaqueGuards(program, options = {}) {
         x72DistributedOpaqueGuards: { enabled: inserted > 0, inserted, interval }
     };
 }
-
 function snapshotProgram(program) {
     return {
         constants: JSON.parse(JSON.stringify(program.constants || [])),

@@ -15,4 +15,5 @@ jobs:
           node-version: 20
       - run: npm install
       - run: node tests/debug-opt.js
+      - run: node tests/benchmark-exact.js
       - run: npm test

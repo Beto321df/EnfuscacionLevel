@@ -1,7 +1,7 @@
 const CodeGenerator = require('../src/generator/visualCodegen.js');
 const { wrapVisual } = require('../src/zlang/visualTransport');
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
     const { id } = req.query;
     const accept = (req.headers['accept'] || '').toLowerCase();
     const ua = (req.headers['user-agent'] || '').toLowerCase();

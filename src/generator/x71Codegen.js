@@ -55,6 +55,37 @@ function invOdd32(a) {
     for (let i = 0; i < 5; i += 1) x = mul32(x, (2 - mul32(a, x)) >>> 0);
     return x >>> 0;
 }
+function mod16(v) {
+    v = Number(v) % 65536;
+    if (v < 0) v += 65536;
+    return v;
+}
+function mul16(a, b) {
+    return (mod16(a) * mod16(b)) % 65536;
+}
+function randomOdd16() {
+    return (rand(1, 65534) | 1) & 65535;
+}
+function invOdd16(a) {
+    let x = 1;
+    for (let i = 0; i < 4; i += 1) x = mul16(x, 2 - mul16(a, x));
+    return x & 65535;
+}
+function canPack16(fn, options = {}) {
+    if (options.packOperands16 === false) return false;
+    if (fn.code.length > 65535 || fn.localCount > 65535 || fn.registerCount > 65535) return false;
+    if (fn.params.some(v => v > 65535)) return false;
+    if (fn.upvalues.some(v => v.index > 65535)) return false;
+    for (const layout of fn.iteratorLayouts) {
+        if (layout.some(v => v > 65535)) return false;
+    }
+    for (const ins of fn.code) {
+        for (let i = 1; i < 5; i += 1) {
+            if (!Number.isInteger(ins[i]) || ins[i] < 0 || ins[i] > 65535) return false;
+        }
+    }
+    return true;
+}
 function u16(out, v) {
     if (!Number.isInteger(v) || v < 0 || v > 65535) throw new Error('X7.1 u16 fuera de rango.');
     out.push((v >>> 8) & 255, v & 255);
@@ -309,26 +340,36 @@ function buildContainer(program, options = {}) {
         }
     }
 
-    // Section C: split opcode/operand planes. No tuple-per-instruction layout is persisted.
+    // Section C: split opcode/operand planes. Eligible functions use 16-bit
+    // lanes so the container does not spend four bytes on every small operand.
     const codeSection = [];
     u16(codeSection, C.functions.length);
     for (let i = 0; i < C.functions.length; i += 1) {
         const fn = C.functions[i];
         if (fn.code.length > 0xFFFFFFFF) throw new Error('X7.1: demasiadas instrucciones.');
+        const packed16 = canPack16(fn, options);
+        const layout = packed16 ? 16 : 32;
+        const writeOperand = packed16 ? u16 : u32;
+        const transform = packed16 ? mul16 : mul32;
+        const modulus = packed16 ? 65536 : PC_MOD;
+        const oddKey = packed16 ? randomOdd16 : randomOdd32;
+        const invert = packed16 ? invOdd16 : invOdd32;
+
         const order = shuffle([1, 2, 3, 4]);
-        const pcMul = randomOdd32();
-        const pcInv = invOdd32(pcMul);
-        const pcAdd = rand(0, 0xFFFFFFFF) >>> 0;
-        const fnMul = randomOdd32();
-        const fnAdd = rand(0, 0xFFFFFFFF) >>> 0;
-        const cMul = randomOdd32();
-        const cAdd = rand(0, 0xFFFFFFFF) >>> 0;
-        const lMul = encodeLocalOperands ? randomOdd32() : 1;
-        const lAdd = encodeLocalOperands ? (rand(0, 0xFFFFFFFF) >>> 0) : 0;
+        const pcMul = oddKey();
+        const pcInv = invert(pcMul);
+        const pcAdd = rand(0, packed16 ? 0xFFFF : 0xFFFFFFFF) >>> 0;
+        const fnMul = oddKey();
+        const fnAdd = rand(0, packed16 ? 0xFFFF : 0xFFFFFFFF) >>> 0;
+        const cMul = oddKey();
+        const cAdd = rand(0, packed16 ? 0xFFFF : 0xFFFFFFFF) >>> 0;
+        const lMul = encodeLocalOperands ? oddKey() : 1;
+        const lAdd = encodeLocalOperands ? (rand(0, packed16 ? 0xFFFF : 0xFFFFFFFF) >>> 0) : 0;
         const feedbackKeys = encodeOperandFeedback
-            ? Array.from({ length: 4 }, () => rand(0, 0xFFFFFFFF) >>> 0)
+            ? Array.from({ length: 4 }, () => rand(0, packed16 ? 0xFFFF : 0xFFFFFFFF) >>> 0)
             : [0, 0, 0, 0];
         const targetTokens = encodeTargetTokens ? (() => {
+            if (packed16) return [0, ...shuffle(Array.from({ length: fn.code.length }, (_, n) => n + 1))];
             const used = new Set();
             const tokens = new Array(fn.code.length + 1);
             for (let logicalPc = 1; logicalPc <= fn.code.length; logicalPc += 1) {
@@ -342,21 +383,23 @@ function buildContainer(program, options = {}) {
 
         u32(codeSection, fn.code.length);
         codeSection.push(...order);
-        u32(codeSection, pcMul);
-        u32(codeSection, pcAdd);
-        u32(codeSection, fnMul);
-        u32(codeSection, fnAdd);
-        u32(codeSection, cMul);
-        u32(codeSection, cAdd);
+        codeSection.push(layout);
+        writeOperand(codeSection, pcMul);
+        writeOperand(codeSection, pcAdd);
+        writeOperand(codeSection, fnMul);
+        writeOperand(codeSection, fnAdd);
+        writeOperand(codeSection, cMul);
+        writeOperand(codeSection, cAdd);
         if (encodeLocalOperands) {
-            u32(codeSection, lMul);
-            u32(codeSection, lAdd);
+            writeOperand(codeSection, lMul);
+            writeOperand(codeSection, lAdd);
         }
         if (encodeTargetTokens) {
             for (let logicalPc = 1; logicalPc <= fn.code.length; logicalPc += 1) {
-                u32(codeSection, targetTokens[logicalPc]);
+                writeOperand(codeSection, targetTokens[logicalPc]);
             }
         }
+
         const physicalOrder = encodeInstructionRoute
             ? shuffle(Array.from({ length: fn.code.length }, (_, n) => n + 1))
             : Array.from({ length: fn.code.length }, (_, n) => n + 1);
@@ -366,9 +409,10 @@ function buildContainer(program, options = {}) {
                 logicalToPhysical[physicalOrder[physicalSlot - 1]] = physicalSlot;
             }
             for (let logicalPc = 1; logicalPc <= fn.code.length; logicalPc += 1) {
-                u32(codeSection, logicalToPhysical[logicalPc]);
+                writeOperand(codeSection, logicalToPhysical[logicalPc]);
             }
         }
+
         for (const logicalPc of physicalOrder) codeSection.push(fn.code[logicalPc - 1][0] & 255);
         for (let q = 1; q <= OP_COUNT; q += 1) codeSection.push(opcodeMaps[i].decode[q] || q);
 
@@ -376,10 +420,10 @@ function buildContainer(program, options = {}) {
         const planeKeys = [];
         const planeSteps = [];
         for (let p = 0; p < 4; p += 1) {
-            planeKeys[p] = rand(0, 0xFFFFFFFF) >>> 0;
+            planeKeys[p] = rand(0, packed16 ? 0xFFFF : 0xFFFFFFFF) >>> 0;
             planeSteps[p] = (rand(1, 0xFFFF) | 1) >>> 0;
-            u32(codeSection, planeKeys[p]);
-            u32(codeSection, planeSteps[p]);
+            writeOperand(codeSection, planeKeys[p]);
+            writeOperand(codeSection, planeSteps[p]);
         }
 
         for (let physicalPc = 0; physicalPc < fn.code.length; physicalPc += 1) {
@@ -392,32 +436,34 @@ function buildContainer(program, options = {}) {
                 const idx = field - 1;
                 vals[idx] = encodeTargetTokens
                     ? targetTokens[vals[idx]]
-                    : mod32(mul32(vals[idx], pcMul) + pcAdd);
+                    : mod32(transform(vals[idx], pcMul) + pcAdd) % modulus;
             }
             for (const field of functionFields(sem)) {
                 const idx = field - 1;
-                vals[idx] = mod32(mul32(vals[idx], fnMul) + fnAdd);
+                vals[idx] = mod32(transform(vals[idx], fnMul) + fnAdd) % modulus;
             }
             for (const field of constantFields(sem)) {
                 const idx = field - 1;
-                vals[idx] = mod32(mul32(vals[idx], cMul) + cAdd);
+                vals[idx] = mod32(transform(vals[idx], cMul) + cAdd) % modulus;
             }
             if (encodeLocalOperands) {
                 for (const field of localFields(sem)) {
                     const idx = field - 1;
-                    vals[idx] = mod32(mul32(vals[idx], lMul) + lAdd);
+                    vals[idx] = mod32(transform(vals[idx], lMul) + lAdd) % modulus;
                 }
             }
             for (let field = 0; field < 4; field += 1) planes[order[field] - 1].push(vals[field]);
         }
+
         if (encodeOperandFeedback) {
-            for (let p = 0; p < 4; p += 1) u32(codeSection, feedbackKeys[p]);
+            for (let p = 0; p < 4; p += 1) writeOperand(codeSection, feedbackKeys[p]);
         }
         for (let p = 0; p < 4; p += 1) {
             let previous = 0;
             for (let j = 0; j < planes[p].length; j += 1) {
-                const v = mod32(planes[p][j] + planeKeys[p] + j * planeSteps[p] + mul32(previous, feedbackKeys[p]));
-                u32(codeSection, v);
+                const feedback = encodeOperandFeedback ? transform(previous, feedbackKeys[p]) : 0;
+                const v = (planes[p][j] + planeKeys[p] + j * planeSteps[p] + feedback) % modulus;
+                writeOperand(codeSection, v);
                 previous = v;
             }
         }
@@ -531,15 +577,18 @@ function validateContainer(bytes) {
         const countIns = is.four();
         totalInstr += countIns;
         for (let j=0;j<4;j+=1) is.one();
-        for (let j=0;j<6;j+=1) is.four();
-        if (localMask) for (let j=0;j<2;j+=1) is.four();
-        if (targetTokenMask) for (let j=0;j<countIns;j+=1) is.four();
-        if (routeMask) for (let j=0;j<countIns;j+=1) is.four();
+        const layout = is.one();
+        if (layout !== 16 && layout !== 32) throw new Error('X7.1: layout de operandos inválido.');
+        const operand = layout === 16 ? is.two : is.four;
+        for (let j=0;j<6;j+=1) operand();
+        if (localMask) for (let j=0;j<2;j+=1) operand();
+        if (targetTokenMask) for (let j=0;j<countIns;j+=1) operand();
+        if (routeMask) for (let j=0;j<countIns;j+=1) operand();
         for (let j=0;j<countIns;j+=1) is.one();
         for (let j=0;j<56;j+=1) is.one();
-        for (let j=0;j<8;j+=1) is.four();
-        if (feedbackMask) for (let j=0;j<4;j+=1) is.four();
-        for (let j=0;j<countIns*4;j+=1) is.four();
+        for (let j=0;j<8;j+=1) operand();
+        if (feedbackMask) for (let j=0;j<4;j+=1) operand();
+        for (let j=0;j<countIns*4;j+=1) operand();
     }
     if (is.pos !== I.length) throw new Error('X7.1: cola en bytecode plano.');
 
@@ -647,8 +696,8 @@ function x71Loader(program, options = {}) {
     const cipherMode = options.rollingPayload === true ? 1 : 0;
     const [hi, lo] = alphabets();
     const payload = encodePayload(packed.bytes, seed, step, hi, lo, cipherMode === 1);
-    const D = "D=function(t)local s=t.p;local o={};local n=#s;local rk1=t.k%256;local rk2=(t.k*7+t.s+13)%256;local rk3=(t.k*31+t.s*17+17)%256;if n%2~=0 then error('X71 payload')end;for i=1,n,2 do local a=string.find(t.h,string.sub(s,i,i),1,true);local b=string.find(t.l,string.sub(s,i+1,i+1),1,true);if not a or not b then error('X71 glyph')end;local j=(i-1)/2;local v=(a-1)*16+b-1;if t.m==1 then local pos=j+1;local e=v;if pos%3==1 then v=(e-rk1-rk3-pos)%256 elseif pos%3==2 then v=(e+rk2-rk3+pos)%256 else v=(e-rk2+rk1-pos)%256 end;rk1=(rk1*13+e+t.s)%256;rk2=(rk2*31+17+pos)%256;rk3=(rk3*29+e+7+t.k)%256 end;v=(v-t.k-j*t.s)%256;o[#o+1]=string.char(v)end;local r=table.concat(o);local q=function(i)return string.byte(r,i)or error('X71 eof')end;local p=1;local function u()local v=q(p);p=p+1;return v end;local function U()local a,b=u(),u();return a*256+b end;local function V()local a,b,c,d=u(),u(),u(),u();return a*16777216+b*65536+c*256+d end;if q(1)~=88 or q(2)~=55 or q(3)~=71 then error('X71 header')end;p=4;local ns=u();local sec={};for i=1,ns do local id=u();local len=V();local e=p+len-1;local z={};while p<=e do z[#z+1]=u()end;sec[id]=z end;local sealPos=p;local aa=17;local bb=29;for i=1,sealPos-1 do local v=q(i);aa=(aa+v*(i+10))%65521;bb=(bb*33+v+i+6)%65521 end;local expect1=V();local got=(((aa*65536)%4294967296)+bb)%4294967296;if got~=expect1 then error('X71 seal')end;local C=sec[11];local M=sec[19];local I=sec[37];local L=sec[53];local FT=sec[71];local localMask=FT and(FT[1]%2==1);local routeMask=FT and(math.floor(FT[1]/2)%2==1);local feedbackMask=FT and(math.floor(FT[1]/4)%2==1);local constantMask=FT and(math.floor(FT[1]/8)%2==1);local targetTokenMask=FT and(math.floor(FT[1]/16)%2==1);local D32=function(a,b)local al=a%65536;local ah=math.floor(a/65536);local bl=b%65536;local bh=math.floor(b/65536);return(al*bl+(al*bh+ah*bl)*65536)%4294967296 end;local M_INV=4294901761;if not C or not M or not I or not L then error('X71 sections')end;local lli=1;local function lV()local a,b,c,d=L[lli],L[lli+1],L[lli+2],L[lli+3];lli=lli+4;if not d then error('X71 ledger eof')end;return a*16777216+b*65536+c*256+d end;local expectedInstr=lV();local expectedConst=lV();local expectedFn=lV();local expectedRoot=lV();local ci=1;local function cu()local v=C[ci];ci=ci+1;if not v then error('X71 const eof')end;return v end;local function cU()local a,b=cu(),cu();return a*256+b end;local function cV()local a,b,c,d=cu(),cu(),cu(),cu();return a*16777216+b*65536+c*256+d end;local rc=cU();if rc~=expectedConst then error('X71 const count')end;local constantRoute;if constantMask then constantRoute={};for logical=1,rc do constantRoute[logical]=cV()+1 end end;local physicalConstants={};for i=1,rc do local entryLen=cV();local entryEnd=ci+entryLen;local typ=cu();local key=cu();local st=cu();local es=cu();local shards=cu();local chunks={};for j=1,shards do local si=(cu()-es)%256;local ln=cU();local d={};for k=1,ln do d[k]=cu()end;chunks[#chunks+1]={i=si,d=d}end;table.sort(chunks,function(a,b)return a.i<b.i end);physicalConstants[i]={t=typ,k=key,s=st,c=chunks};if ci~=entryEnd then error('X71 const entry')end end;local function decodeConst(d)local raw={};local pos=0;for _,ch in ipairs(d.c)do for k=1,#ch.d do pos=pos+1;raw[pos]=(ch.d[k]-d.k-ch.i-(k-1)*d.s)%256 end end;local chars={};for i=1,#raw do chars[i]=string.char(raw[i])end;local str=table.concat(chars);if d.t==1 then return str elseif d.t==2 then return tonumber(str)elseif d.t==3 then return string.byte(str,1)==1 else return nil end end;local constants=setmetatable({},{__index=function(t,logical)local physical=constantRoute and constantRoute[logical]or logical;local d=physicalConstants[physical];if not d then return nil end;if d.done then return d.v end;local v=decodeConst(d);d.v=v;d.done=true;d.c=nil;t[logical]=v;return v end});local mi=1;local function mu()local v=M[mi];mi=mi+1;if not v then error('X71 meta eof')end;return v end;local function mU()local a,b=mu(),mu();return a*256+b end;local function mV()local a,b,c,d=mu(),mu(),mu(),mu();return a*16777216+b*65536+c*256+d end;local nf=mU();local root=mU();if nf~=expectedFn or root~=expectedRoot then error('X71 ledger mismatch')end;local f={};for i=1,nf do local mk=mV();local step=mV();local vararg=mU()==1;local function mv(index)local v=mV();local x=D32(v,M_INV);return (x-mk-index*step)%4294967296 end;local fn={p={},u={},i={},c={},l=mv(1),r=mv(2),v=vararg,q=nil,z=nil,f=nil,k=nil};local np=mU();for j=1,np do fn.p[j]=mv(10+j-1)end;local nu=mU();for j=1,nu do fn.u[j]={((mu()-(mk%256)-((j-1)*17))%256+256)%256,mv(200+j-1)}end;local ni=mU();for j=1,ni do local it={};local n=mU();for k=1,n do it[k]=mv(400+(j-1)*97+(k-1))end;fn.i[j]=it end;f[i]=fn end;local li=1;local function iu()local v=I[li];li=li+1;if not v then error('X71 code eof')end;return v end;local function iU()local a,b=iu(),iu();return a*256+b end;local function iV()local a,b,c,d=iu(),iu(),iu(),iu();return a*16777216+b*65536+c*256+d end;local nfi=iU();if nfi~=nf then error('X71 fn count')end;local actualInstr=0;local dbg={};for i=1,nf do local fn=f[i];local count=iV();dbg[#dbg+1]=count;actualInstr=actualInstr+count;local order={iu(),iu(),iu(),iu()};fn.z={mul=iV(),add=iV()};fn.z.inv=(function(m)local x=1;for j=1,5 do x=D32(x,(2-D32(m,x))%4294967296)end;return x end)(fn.z.mul);fn.f={mul=iV(),add=iV()};fn.f.inv=(function(m)local x=1;for j=1,5 do x=D32(x,(2-D32(m,x))%4294967296)end;return x end)(fn.f.mul);fn.k={mul=iV(),add=iV()};fn.k.inv=(function(m)local x=1;for j=1,5 do x=D32(x,(2-D32(m,x))%4294967296)end;return x end)(fn.k.mul);if localMask then fn.x={mul=iV(),add=iV()};fn.x.inv=(function(m)local x=1;for j=1,5 do x=D32(x,(2-D32(m,x))%4294967296)end;return x end)(fn.x.mul)end;if targetTokenMask then fn.z.tokens={};for logical=1,count do fn.z.tokens[iV()]=logical end end;local route;if routeMask then route={};for logical=1,count do route[logical]=iV()end end;local opcodes={};for j=1,count do opcodes[j]=iu()end;fn.q={};local semanticByPhysical={};for q=1,56 do semanticByPhysical[q]=iu()end;fn.q=semanticByPhysical;fn.y=route;local pk={};local ps={};for q=1,4 do pk[q]=iV();ps[q]=iV()end;local feedbackKeys;if feedbackMask then feedbackKeys={};for q=1,4 do feedbackKeys[q]=iV()end end;local planes={{},{},{},{}};for q=1,4 do local previous=0;for j=1,count do local encoded=iV();local v=(encoded-pk[q]-((j-1)*ps[q])-(feedbackMask and mul32(previous,feedbackKeys[q])or 0))%4294967296;planes[q][j]=v;previous=encoded end end;local function J(op,f)if(op==24 or op==32 or op==46)and f==1 then return true elseif(op==25 or op==26)and f==2 then return true elseif(op==28 or op==29)and f==1 then return true elseif op==30 and f==4 then return true elseif op==31 and(f==1 or f==2)then return true elseif(op==38 or op==39 or op==48 or op==49)and f==4 then return true end;return false end;for pc=1,count do local vals={0,0,0,0};for logical=1,4 do local oi=order[logical];local plane=planes[oi];if not plane then error('X71 plane map '..tostring(i)..':'..tostring(logical)..':'..tostring(oi))end;local pv=plane[pc];if pv==nil then error('X71 plane eof '..tostring(i)..':'..tostring(pc))end;vals[logical]=pv end;local phys=opcodes[pc];local sem=fn.q[phys];if not sem then error('X71 opcode map')end;local e={phys,vals[1],vals[2],vals[3],vals[4]};fn.c[pc]=e end end;if actualInstr~=expectedInstr then error('X71 instruction count '..tostring(actualInstr)..'/'..tostring(expectedInstr))end;return{k=constants,f=f,r=root}end";
-    let O = "O=function(t,P,id,pl,pu,a)local PACK=function(...)local z={...};z.n=select('#',...);return z end;local UNPACK;if table and type(UNPACK)=='function' then UNPACK=UNPACK elseif type(unpack)=='function' then UNPACK=unpack else UNPACK=function(v,i,j)i=i or 1;j=j or #v;if i>j then return end;return v[i],UNPACK(v,i+1,j)end end;local M=function(v,n)return{z=1,n=n,v=v}end;local I=function(v)return type(v)=='table'and v.z==1 end;local GE=(type(getgenv)=='function'and getgenv())or nil;local RE=(type(getrenv)=='function'and getrenv())or nil;local FE;if type(getfenv)=='function'then local ok,e=pcall(getfenv,0);if ok then FE=e end end;local EE=type(_ENV)=='table'and _ENV or nil;local G=GE or RE or FE or EE or _G;local GG=function(k)local v=GE and GE[k]or nil;if v~=nil then return v end;v=RE and RE[k]or nil;if v~=nil then return v end;v=FE and FE[k]or nil;if v~=nil then return v end;v=EE and EE[k]or nil;if v~=nil then return v end;v=_G and _G[k]or nil;if v~=nil then return v end;v=G and G[k]or nil;if v~=nil then return v end;error('X71 global '..tostring(k))end;local SG=function(k,v)if GE then GE[k]=v elseif RE then RE[k]=v elseif FE then FE[k]=v elseif EE then EE[k]=v else G[k]=v end end;local U=function(x)x=x%4294967296;if x<0 then x=x+4294967296 end;return x end;local S=function(x)x=U(x);if x>=2147483648 then return x-4294967296 end;return x end;local B=function(x,y,m)x=U(x);y=U(y);local r=0;local b=1;for i=1,32 do local a=x%2>=1;local c=y%2>=1;if(m==1 and a and c)or(m==2 and(a or c))or(m==3 and(a~=c))then r=r+b end;x=math.floor(x/2);y=math.floor(y/2);b=b*2 end;return S(r)end;local H=function(x,y,m)local n=math.floor(y);if n<0 then n=-n;m=m==1 and 2 or 1 end;if n>=32 then if m==1 then return 0 end;return S(x)<0 and -1 or 0 end;local u=U(x);if m==1 then return S(u*2^n%4294967296)end;return math.floor(S(x)/2^n)end;local function N(o,x,y)if o==1 then return x+y elseif o==2 then return x-y elseif o==3 then return x*y elseif o==4 then return x/y elseif o==5 then return x%y elseif o==6 then return x^y elseif o==7 then return x..y elseif o==8 then return x==y elseif o==9 then return x~=y elseif o==10 then return x<y elseif o==11 then return x>y elseif o==12 then return x<=y elseif o==13 then return x>=y elseif o==14 then return math.floor(x/y) elseif o==15 then return B(x,y,1) elseif o==16 then return B(x,y,2) elseif o==17 then return B(x,y,3) elseif o==18 then return H(x,y,1) elseif o==19 then return H(x,y,2) end;error('X71 bin '..tostring(o)..':'..tostring(x)..':'..tostring(y))end;local function A(o,x)if o==1 then return not x elseif o==2 then return -x elseif o==3 then return#x elseif o==4 then return S(4294967295-U(x)) end;error('X71 unary')end;local function V(fn,a)if type(fn)~='function'then error('X71 call '..tostring(type(fn))..':'..tostring(fn))end;local ok,r=pcall(function()return PACK(fn(UNPACK(a,1,a.n or#a)))end);if not ok then error(r)end;if r.n==1 and I(r[1])then return r[1]end;return M(r,r.n)end;local function D32(a,b)local al=a%65536;local ah=math.floor(a/65536);local bl=b%65536;local bh=math.floor(b/65536);return(al*bl+(al*bh+ah*bl)*65536)%4294967296 end;local function INV(fn,v)local z=fn.z;if z.tokens then local pc=z.tokens[v];if not pc then error('X71 target token')end;return pc end;return D32((v-z.add)%4294967296,z.inv)end;local function CINV(fn,v)local z=fn.k;return D32((v-z.add)%4294967296,z.inv)end;local function LINV(fn,v)local z=fn.x;if not z then return v end;return D32((v-z.add)%4294967296,z.inv)end;local X;local F=function(i,l,u)return function(...)return X(t,P,i,l,u,PACK(...))end end;X=function(t,P,id,pl,pu,a)local fn=P.f[id+1];if not fn then error('X71 fn '..tostring(id)..'/'..tostring(#P.f))end;local lc={};for i=1,fn.l do lc[i]={v=nil}end;local uv={};for i=1,#fn.u do local q=fn.u[i];local z=q[1]==0 and pl and pl[q[2]+1]or pu and pu[q[2]+1];if not z then error('X71 upvalue')end;uv[i]=z end;for i=1,#fn.p do local q=fn.p[i]+1;if q>0 and q<=#lc then lc[q].v=a[i]end end;local va={n=0};if fn.v then for i=#fn.p+1,a.n do va.n=va.n+1;va[va.n]=a[i]end end;local r={};local pc=1;local lp={};local steps=0;while pc<=#fn.c do steps=steps+1;if steps>5000000 then error('X71 step')end;local e=fn.c[(fn.y and fn.y[pc] or pc)];pc=pc+1;local o=fn.q[e[1]];if not o then error('X71 opcode')end;local a1,b,c,d=e[2],e[3],e[4],e[5];if o==1 then elseif o==2 or o==41 then r[a1]=P.k[CINV(fn,b)+1] elseif o==3 or o==42 then local q=lc[LINV(fn,b)+1];r[a1]=q and q.v elseif o==4 or o==43 then local la=LINV(fn,a1);lc[la+1]=lc[la+1]or{v=nil};lc[la+1].v=r[b] elseif o==5 then r[a1]=GG(P.k[CINV(fn,b)+1]) elseif o==6 then SG(P.k[CINV(fn,a1)+1],r[b]) elseif o==36 then local q=uv[b+1];if not q then error('X71 upvalue')end;r[a1]=q.v elseif o==37 then local q=uv[a1+1];if not q then error('X71 upvalue')end;q.v=r[b] elseif o==7 then local q=r[b];r[a1]=q and q[P.k[CINV(fn,c)+1]] elseif o==8 then local q=r[a1];if not q then error('X71 member')end;q[P.k[CINV(fn,b)+1]]=r[c] elseif o==9 then local q=r[b];r[a1]=q and q[r[c]] elseif o==10 then local q=r[a1];if not q then error('X71 index')end;q[r[b]]=r[c] elseif o==11 then local fid=D32((b-fn.f.add)%4294967296,fn.f.inv);r[a1]=F(fid,lc,uv) elseif o==12 or o==45 then r[a1]=N(d,r[b],r[c]) elseif o==13 then r[a1]=A(c,r[b]) elseif o==14 then r[a1]={} elseif o==15 then r[a1]=va[1] elseif o==54 then r[a1]=M(va,va.n) elseif o==16 or o==44 then r[a1]=r[b] elseif o==17 or o==18 then local q={};for i=1,c do q[i]=r[b+i]end;local v=V(r[b],q);r[a1]=o==18 and v or v.v[1] elseif o==19 or o==20 then local q=r[b];local w={q};for i=1,d do w[i+1]=r[b+i]end;local cm=CINV(fn,c);local v=V(q[P.k[cm+1]],w);r[a1]=o==20 and v or v.v[1] elseif o==55 then local q={};for i=1,c do q[i]=r[b+i]end;local w=r[d];if I(w)then for i=1,w.n do q[c+i]=w.v[i]end else q[c+1]=w end;q.n=c+(I(w)and w.n or 1);r[a1]=V(r[b],q).v[1] elseif o==56 then local n=d%65536;local q=math.floor(d/65536)%65536;local w=r[b];local v={w};for i=1,n do v[i+1]=r[b+i]end;local x=r[q];if I(x)then for i=1,x.n do v[n+i+1]=x.v[i]end else v[n+2]=x end;v.n=n+(I(x)and x.n or 1)+1;local y=V(w[P.k[CINV(fn,c)+1]],v);r[a1]=y.v[1] elseif o==50 then return M({},0) elseif o==21 or o==47 then local v=r[a1];return I(v)and v or M({v},1) elseif o==22 then local v={};for i=1,b do v[i]=r[a1+i-1]end;return M(v,b) elseif o==23 then local v={};for i=1,c do v[i]=r[b+i-1]end;r[a1]=M(v,c) elseif o==51 then local v=r[b];local w=I(v)and v.v or{v};for i=1,c do r[a1+i-1]=w[i]end elseif o==52 then local v={};for i=1,b do v[i]=r[a1+i-1]end;local w=r[c];if I(w)then for i=1,w.n do v[b+i]=w.v[i]end else v[b+1]=w end;return M(v,b+(I(w)and w.n or 1)) elseif o==53 then local v=r[a1];local w=r[b];local q=I(w)and w.v or{w};for i=1,#q do v[c+i-1]=q[i]end elseif o==24 or o==46 then pc=INV(fn,e[2]) elseif o==25 then if not r[a1]then pc=INV(fn,b)end elseif o==26 then if r[a1]then pc=INV(fn,b)end elseif o==27 then local q={s=LINV(fn,a1),c=r[b],f=r[c],t=r[d]};if q.t==0 then error('X71 for')end;lp[#lp+1]=q elseif o==28 then local q=lp[#lp];local keep=q.t>0 and q.c<=q.f or q.t<0 and q.c>=q.f;if not keep then lp[#lp]=nil;pc=INV(fn,a1)else lc[q.s+1]=lc[q.s+1]or{v=nil};lc[q.s+1].v=q.c end elseif o==29 then local q=lp[#lp];q.c=q.c+q.t;local keep=q.t>0 and q.c<=q.f or q.t<0 and q.c>=q.f;if keep then lc[q.s+1].v=q.c else lp[#lp]=nil;pc=INV(fn,a1)end elseif o==30 then local q=r[a1];if not I(q)or q.n<3 then error('X71 iter')end;local w=q.v[1];local z=q.v[2];local y=q.v[3];local v=V(w,{z,y});local n=fn.i[c+1]or{};local x={fn=w,st=z,co=v.v[1],sl=n};if x.co==nil then pc=INV(fn,d)else lp[#lp+1]=x;for i=1,b do lc[n[i]+1]=lc[n[i]+1]or{v=nil};lc[n[i]+1].v=v.v[i]end end elseif o==31 then local q=lp[#lp];local w=V(q.fn,{q.st,q.co});q.co=w.v[1];if q.co==nil then lp[#lp]=nil;pc=INV(fn,b)else for i=1,#q.sl do lc[q.sl[i]+1].v=w.v[i]end;pc=INV(fn,a1)end elseif o==32 then lp[#lp]=nil;pc=INV(fn,a1)elseif o==33 then local la=LINV(fn,a1);local ld=LINV(fn,d);lc[ld+1]=lc[ld+1]or{v=nil};lc[ld+1].v=N(c,lc[la]and lc[la].v,P.k[CINV(fn,b)+1])elseif o==34 then local la=LINV(fn,a1);local lb=LINV(fn,b);local ld=LINV(fn,d);lc[ld+1]=lc[ld+1]or{v=nil};lc[ld+1].v=N(c,lc[la]and lc[la].v,lc[lb]and lc[lb].v)elseif o==35 then local v=V(GG(P.k[CINV(fn,b)+1]),{});r[a1]=c==1 and v or v.v[1]elseif o==38 or o==48 then if not N(c,r[a1],r[b])then pc=INV(fn,d)end elseif o==39 or o==49 then if N(c,r[a1],r[b])then pc=INV(fn,d)end else error('X71 opcode')end end;return M({nil},1)end;return X(t,P,id,pl,pu,a)end";
+    const D = "D=function(t)local s=t.p;local o={};local n=#s;local rk1=t.k%256;local rk2=(t.k*7+t.s+13)%256;local rk3=(t.k*31+t.s*17+17)%256;if n%2~=0 then error('X71 payload')end;for i=1,n,2 do local a=string.find(t.h,string.sub(s,i,i),1,true);local b=string.find(t.l,string.sub(s,i+1,i+1),1,true);if not a or not b then error('X71 glyph')end;local j=(i-1)/2;local v=(a-1)*16+b-1;if t.m==1 then local pos=j+1;local e=v;if pos%3==1 then v=(e-rk1-rk3-pos)%256 elseif pos%3==2 then v=(e+rk2-rk3+pos)%256 else v=(e-rk2+rk1-pos)%256 end;rk1=(rk1*13+e+t.s)%256;rk2=(rk2*31+17+pos)%256;rk3=(rk3*29+e+7+t.k)%256 end;v=(v-t.k-j*t.s)%256;o[#o+1]=string.char(v)end;local r=table.concat(o);local q=function(i)return string.byte(r,i)or error('X71 eof')end;local p=1;local function u()local v=q(p);p=p+1;return v end;local function U()local a,b=u(),u();return a*256+b end;local function V()local a,b,c,d=u(),u(),u(),u();return a*16777216+b*65536+c*256+d end;if q(1)~=88 or q(2)~=55 or q(3)~=71 then error('X71 header')end;p=4;local ns=u();local sec={};for i=1,ns do local id=u();local len=V();local e=p+len-1;local z={};while p<=e do z[#z+1]=u()end;sec[id]=z end;local sealPos=p;local aa=17;local bb=29;for i=1,sealPos-1 do local v=q(i);aa=(aa+v*(i+10))%65521;bb=(bb*33+v+i+6)%65521 end;local expect1=V();local got=(((aa*65536)%4294967296)+bb)%4294967296;if got~=expect1 then error('X71 seal')end;local C=sec[11];local M=sec[19];local I=sec[37];local L=sec[53];local FT=sec[71];local localMask=FT and(FT[1]%2==1);local routeMask=FT and(math.floor(FT[1]/2)%2==1);local feedbackMask=FT and(math.floor(FT[1]/4)%2==1);local constantMask=FT and(math.floor(FT[1]/8)%2==1);local targetTokenMask=FT and(math.floor(FT[1]/16)%2==1);local D32=function(a,b)local al=a%65536;local ah=math.floor(a/65536);local bl=b%65536;local bh=b and math.floor(b/65536)or 0;return(al*bl+(al*bh+ah*bl)*65536)%4294967296 end;local D16=function(a,b)return(a*b)%65536 end;local INVK=function(m,w)if w==16 then local x=1;for j=1,4 do x=D16(x,(2-D16(m,x))%65536)end;return x end;local x=1;for j=1,5 do x=D32(x,(2-D32(m,x))%4294967296)end;return x end;if not C or not M or not I or not L then error('X71 sections')end;local lli=1;local function lV()local a,b,c,d=L[lli],L[lli+1],L[lli+2],L[lli+3];lli=lli+4;if not d then error('X71 ledger eof')end;return a*16777216+b*65536+c*256+d end;local expectedInstr=lV();local expectedConst=lV();local expectedFn=lV();local expectedRoot=lV();local ci=1;local function cu()local v=C[ci];ci=ci+1;if not v then error('X71 const eof')end;return v end;local function cU()local a,b=cu(),cu();return a*256+b end;local function cV()local a,b,c,d=cu(),cu(),cu(),cu();return a*16777216+b*65536+c*256+d end;local rc=cU();if rc~=expectedConst then error('X71 const count')end;local constantRoute;if constantMask then constantRoute={};for logical=1,rc do constantRoute[logical]=cV()+1 end end;local physicalConstants={};for i=1,rc do local entryLen=cV();local entryEnd=ci+entryLen;local typ=cu();local key=cu();local st=cu();local es=cu();local shards=cu();local chunks={};for j=1,shards do local si=(cu()-es)%256;local ln=cU();local d={};for k=1,ln do d[k]=cu()end;chunks[#chunks+1]={i=si,d=d}end;table.sort(chunks,function(a,b)return a.i<b.i end);physicalConstants[i]={t=typ,k=key,s=st,c=chunks};if ci~=entryEnd then error('X71 const entry')end end;local function decodeConst(d)local raw={};local pos=0;for _,ch in ipairs(d.c)do for k=1,#ch.d do pos=pos+1;raw[pos]=(ch.d[k]-d.k-ch.i-(k-1)*d.s)%256 end end;local chars={};for i=1,#raw do chars[i]=string.char(raw[i])end;local str=table.concat(chars);if d.t==1 then return str elseif d.t==2 then return tonumber(str)elseif d.t==3 then return string.byte(str,1)==1 else return nil end end;local constants=setmetatable({},{__index=function(t,logical)local physical=constantRoute and constantRoute[logical]or logical;local d=physicalConstants[physical];if not d then return nil end;if d.done then return d.v end;local v=decodeConst(d);d.v=v;d.done=true;d.c=nil;t[logical]=v;return v end});local mi=1;local function mu()local v=M[mi];mi=mi+1;if not v then error('X71 meta eof')end;return v end;local function mU()local a,b=mu(),mu();return a*256+b end;local function mV()local a,b,c,d=mu(),mu(),mu(),mu();return a*16777216+b*65536+c*256+d end;local nf=mU();local root=mU();if nf~=expectedFn or root~=expectedRoot then error('X71 ledger mismatch')end;local f={};for i=1,nf do local mk=mV();local step=mV();local vararg=mU()==1;local function mv(index)local v=mV();local x=D32(v,M_INV);return (x-mk-index*step)%4294967296 end;local fn={p={},u={},i={},c={},l=mv(1),r=mv(2),v=vararg,q=nil,z=nil,f=nil,k=nil};local np=mU();for j=1,np do fn.p[j]=mv(10+j-1)end;local nu=mU();for j=1,nu do fn.u[j]={((mu()-(mk%256)-((j-1)*17))%256+256)%256,mv(200+j-1)}end;local ni=mU();for j=1,ni do local it={};local n=mU();for k=1,n do it[k]=mv(400+(j-1)*97+(k-1))end;fn.i[j]=it end;f[i]=fn end;local li=1;local function iu()local v=I[li];li=li+1;if not v then error('X71 code eof')end;return v end;local function iU()local a,b=iu(),iu();return a*256+b end;local function iV()local a,b,c,d=iu(),iu(),iu(),iu();return a*16777216+b*65536+c*256+d end;local nfi=iU();if nfi~=nf then error('X71 fn count')end;local actualInstr=0;local dbg={};for i=1,nf do local fn=f[i];local count=iV();dbg[#dbg+1]=count;actualInstr=actualInstr+count;local order={iu(),iu(),iu(),iu()};local layout=iu();if layout~=16 and layout~=32 then error('X71 layout')end;local RV=layout==16 and iU or iV;local MUL=layout==16 and D16 or D32;local MW=layout==16 and 65536 or 4294967296;fn.z={mul=RV(),add=RV(),mode=layout};fn.z.inv=INVK(fn.z.mul,layout);fn.f={mul=RV(),add=RV(),mode=layout};fn.f.inv=INVK(fn.f.mul,layout);fn.k={mul=RV(),add=RV(),mode=layout};fn.k.inv=INVK(fn.k.mul,layout);if localMask then fn.x={mul=RV(),add=RV(),mode=layout};fn.x.inv=INVK(fn.x.mul,layout)end;if targetTokenMask then fn.z.tokens={};for logical=1,count do fn.z.tokens[RV()]=logical end end;local route;if routeMask then route={};for logical=1,count do route[logical]=RV()end end;local opcodes={};for j=1,count do opcodes[j]=iu()end;fn.q={};local semanticByPhysical={};for q=1,56 do semanticByPhysical[q]=iu()end;fn.q=semanticByPhysical;fn.y=route;local pk={};local ps={};for q=1,4 do pk[q]=RV();ps[q]=RV()end;local feedbackKeys;if feedbackMask then feedbackKeys={};for q=1,4 do feedbackKeys[q]=RV()end end;local planes={{},{},{},{}};for q=1,4 do local previous=0;for j=1,count do local encoded=RV();local v=(encoded-pk[q]-((j-1)*ps[q])-(feedbackMask and MUL(previous,feedbackKeys[q])or 0))%MW;planes[q][j]=v;previous=encoded end end;local function J(op,f)if(op==24 or op==32 or op==46)and f==1 then return true elseif(op==25 or op==26)and f==2 then return true elseif(op==28 or op==29)and f==1 then return true elseif op==30 and f==4 then return true elseif op==31 and(f==1 or f==2)then return true elseif(op==38 or op==39 or op==48 or op==49)and f==4 then return true end;return false end;for pc=1,count do local vals={0,0,0,0};for logical=1,4 do local oi=order[logical];local plane=planes[oi];if not plane then error('X71 plane map '..tostring(i)..':'..tostring(logical)..':'..tostring(oi))end;local pv=plane[pc];if pv==nil then error('X71 plane eof '..tostring(i)..':'..tostring(pc))end;vals[logical]=pv end;local phys=opcodes[pc];local sem=fn.q[phys];if not sem then error('X71 opcode map')end;local e={phys,vals[1],vals[2],vals[3],vals[4]};fn.c[pc]=e end end;if actualInstr~=expectedInstr then error('X71 instruction count '..tostring(actualInstr)..'/'..tostring(expectedInstr))end;return{k=constants,f=f,r=root}end";
+    let O = "O=function(t,P,id,pl,pu,a)local PACK=function(...)local z={...};z.n=select('#',...);return z end;local UNPACK;if table and type(UNPACK)=='function' then UNPACK=UNPACK elseif type(unpack)=='function' then UNPACK=unpack else UNPACK=function(v,i,j)i=i or 1;j=j or #v;if i>j then return end;return v[i],UNPACK(v,i+1,j)end end;local M=function(v,n)return{z=1,n=n,v=v}end;local I=function(v)return type(v)=='table'and v.z==1 end;local GE=(type(getgenv)=='function'and getgenv())or nil;local RE=(type(getrenv)=='function'and getrenv())or nil;local FE;if type(getfenv)=='function'then local ok,e=pcall(getfenv,0);if ok then FE=e end end;local EE=type(_ENV)=='table'and _ENV or nil;local G=GE or RE or FE or EE or _G;local GG=function(k)local v=GE and GE[k]or nil;if v~=nil then return v end;v=RE and RE[k]or nil;if v~=nil then return v end;v=FE and FE[k]or nil;if v~=nil then return v end;v=EE and EE[k]or nil;if v~=nil then return v end;v=_G and _G[k]or nil;if v~=nil then return v end;v=G and G[k]or nil;if v~=nil then return v end;error('X71 global '..tostring(k))end;local SG=function(k,v)if GE then GE[k]=v elseif RE then RE[k]=v elseif FE then FE[k]=v elseif EE then EE[k]=v else G[k]=v end end;local U=function(x)x=x%4294967296;if x<0 then x=x+4294967296 end;return x end;local S=function(x)x=U(x);if x>=2147483648 then return x-4294967296 end;return x end;local B=function(x,y,m)x=U(x);y=U(y);local r=0;local b=1;for i=1,32 do local a=x%2>=1;local c=y%2>=1;if(m==1 and a and c)or(m==2 and(a or c))or(m==3 and(a~=c))then r=r+b end;x=math.floor(x/2);y=math.floor(y/2);b=b*2 end;return S(r)end;local H=function(x,y,m)local n=math.floor(y);if n<0 then n=-n;m=m==1 and 2 or 1 end;if n>=32 then if m==1 then return 0 end;return S(x)<0 and -1 or 0 end;local u=U(x);if m==1 then return S(u*2^n%4294967296)end;return math.floor(S(x)/2^n)end;local function N(o,x,y)if o==1 then return x+y elseif o==2 then return x-y elseif o==3 then return x*y elseif o==4 then return x/y elseif o==5 then return x%y elseif o==6 then return x^y elseif o==7 then return x..y elseif o==8 then return x==y elseif o==9 then return x~=y elseif o==10 then return x<y elseif o==11 then return x>y elseif o==12 then return x<=y elseif o==13 then return x>=y elseif o==14 then return math.floor(x/y) elseif o==15 then return B(x,y,1) elseif o==16 then return B(x,y,2) elseif o==17 then return B(x,y,3) elseif o==18 then return H(x,y,1) elseif o==19 then return H(x,y,2) end;error('X71 bin '..tostring(o)..':'..tostring(x)..':'..tostring(y))end;local function A(o,x)if o==1 then return not x elseif o==2 then return -x elseif o==3 then return#x elseif o==4 then return S(4294967295-U(x)) end;error('X71 unary')end;local function V(fn,a)if type(fn)~='function'then error('X71 call '..tostring(type(fn))..':'..tostring(fn))end;local ok,r=pcall(function()return PACK(fn(UNPACK(a,1,a.n or#a)))end);if not ok then error(r)end;if r.n==1 and I(r[1])then return r[1]end;return M(r,r.n)end;local function D32(a,b)local al=a%65536;local ah=math.floor(a/65536);local bl=b%65536;local bh=math.floor(b/65536);return(al*bl+(al*bh+ah*bl)*65536)%4294967296 end;local function INV(fn,v)local z=fn.z;if z.tokens then local pc=z.tokens[v];if not pc then error('X71 target token')end;return pc end;return D32((v-z.add)%4294967296,z.inv)end;local function CINV(fn,v)local z=fn.k;return D32((v-z.add)%4294967296,z.inv)end;local function LINV(fn,v)local z=fn.x;if not z then return v end;return D32((v-z.add)%4294967296,z.inv)end;local X;local F=function(i,l,u)return function(...)return X(t,P,i,l,u,PACK(...))end end;X=function(t,P,id,pl,pu,a)local fn=P.f[id+1];if not fn then error('X71 fn '..tostring(id)..'/'..tostring(#P.f))end;local lc={};for i=1,fn.l do lc[i]={v=nil}end;local uv={};for i=1,#fn.u do local q=fn.u[i];local z=q[1]==0 and pl and pl[q[2]+1]or pu and pu[q[2]+1];if not z then error('X71 upvalue')end;uv[i]=z end;for i=1,#fn.p do local q=fn.p[i]+1;if q>0 and q<=#lc then lc[q].v=a[i]end end;local va={n=0};if fn.v then for i=#fn.p+1,a.n do va.n=va.n+1;va[va.n]=a[i]end end;local r={};local pc=1;local lp={};local steps=0;while pc<=#fn.c do steps=steps+1;if steps>5000000 then error('X71 step')end;local e=fn.c[(fn.y and fn.y[pc] or pc)];pc=pc+1;local o=fn.q[e[1]];if not o then error('X71 opcode')end;local a1,b,c,d=e[2],e[3],e[4],e[5];if o==1 then elseif o==2 or o==41 then r[a1]=P.k[CINV(fn,b)+1] elseif o==3 or o==42 then local q=lc[LINV(fn,b)+1];r[a1]=q and q.v elseif o==4 or o==43 then local la=LINV(fn,a1);lc[la+1]=lc[la+1]or{v=nil};lc[la+1].v=r[b] elseif o==5 then r[a1]=GG(P.k[CINV(fn,b)+1]) elseif o==6 then SG(P.k[CINV(fn,a1)+1],r[b]) elseif o==36 then local q=uv[b+1];if not q then error('X71 upvalue')end;r[a1]=q.v elseif o==37 then local q=uv[a1+1];if not q then error('X71 upvalue')end;q.v=r[b] elseif o==7 then local q=r[b];r[a1]=q and q[P.k[CINV(fn,c)+1]] elseif o==8 then local q=r[a1];if not q then error('X71 member')end;q[P.k[CINV(fn,b)+1]]=r[c] elseif o==9 then local q=r[b];r[a1]=q and q[r[c]] elseif o==10 then local q=r[a1];if not q then error('X71 index')end;q[r[b]]=r[c] elseif o==11 then local fm=fn.f.mode==16 and 65536 or 4294967296;local fmul=fn.f.mode==16 and D16 or D32;local fid=fmul((b-fn.f.add)%fm,fn.f.inv);r[a1]=F(fid,lc,uv) elseif o==12 or o==45 then r[a1]=N(d,r[b],r[c]) elseif o==13 then r[a1]=A(c,r[b]) elseif o==14 then r[a1]={} elseif o==15 then r[a1]=va[1] elseif o==54 then r[a1]=M(va,va.n) elseif o==16 or o==44 then r[a1]=r[b] elseif o==17 or o==18 then local q={};for i=1,c do q[i]=r[b+i]end;local v=V(r[b],q);r[a1]=o==18 and v or v.v[1] elseif o==19 or o==20 then local q=r[b];local w={q};for i=1,d do w[i+1]=r[b+i]end;local cm=CINV(fn,c);local v=V(q[P.k[cm+1]],w);r[a1]=o==20 and v or v.v[1] elseif o==55 then local q={};for i=1,c do q[i]=r[b+i]end;local w=r[d];if I(w)then for i=1,w.n do q[c+i]=w.v[i]end else q[c+1]=w end;q.n=c+(I(w)and w.n or 1);r[a1]=V(r[b],q).v[1] elseif o==56 then local n=d%65536;local q=math.floor(d/65536)%65536;local w=r[b];local v={w};for i=1,n do v[i+1]=r[b+i]end;local x=r[q];if I(x)then for i=1,x.n do v[n+i+1]=x.v[i]end else v[n+2]=x end;v.n=n+(I(x)and x.n or 1)+1;local y=V(w[P.k[CINV(fn,c)+1]],v);r[a1]=y.v[1] elseif o==50 then return M({},0) elseif o==21 or o==47 then local v=r[a1];return I(v)and v or M({v},1) elseif o==22 then local v={};for i=1,b do v[i]=r[a1+i-1]end;return M(v,b) elseif o==23 then local v={};for i=1,c do v[i]=r[b+i-1]end;r[a1]=M(v,c) elseif o==51 then local v=r[b];local w=I(v)and v.v or{v};for i=1,c do r[a1+i-1]=w[i]end elseif o==52 then local v={};for i=1,b do v[i]=r[a1+i-1]end;local w=r[c];if I(w)then for i=1,w.n do v[b+i]=w.v[i]end else v[b+1]=w end;return M(v,b+(I(w)and w.n or 1)) elseif o==53 then local v=r[a1];local w=r[b];local q=I(w)and w.v or{w};for i=1,#q do v[c+i-1]=q[i]end elseif o==24 or o==46 then pc=INV(fn,e[2]) elseif o==25 then if not r[a1]then pc=INV(fn,b)end elseif o==26 then if r[a1]then pc=INV(fn,b)end elseif o==27 then local q={s=LINV(fn,a1),c=r[b],f=r[c],t=r[d]};if q.t==0 then error('X71 for')end;lp[#lp+1]=q elseif o==28 then local q=lp[#lp];local keep=q.t>0 and q.c<=q.f or q.t<0 and q.c>=q.f;if not keep then lp[#lp]=nil;pc=INV(fn,a1)else lc[q.s+1]=lc[q.s+1]or{v=nil};lc[q.s+1].v=q.c end elseif o==29 then local q=lp[#lp];q.c=q.c+q.t;local keep=q.t>0 and q.c<=q.f or q.t<0 and q.c>=q.f;if keep then lc[q.s+1].v=q.c else lp[#lp]=nil;pc=INV(fn,a1)end elseif o==30 then local q=r[a1];if not I(q)or q.n<3 then error('X71 iter')end;local w=q.v[1];local z=q.v[2];local y=q.v[3];local v=V(w,{z,y});local n=fn.i[c+1]or{};local x={fn=w,st=z,co=v.v[1],sl=n};if x.co==nil then pc=INV(fn,d)else lp[#lp+1]=x;for i=1,b do lc[n[i]+1]=lc[n[i]+1]or{v=nil};lc[n[i]+1].v=v.v[i]end end elseif o==31 then local q=lp[#lp];local w=V(q.fn,{q.st,q.co});q.co=w.v[1];if q.co==nil then lp[#lp]=nil;pc=INV(fn,b)else for i=1,#q.sl do lc[q.sl[i]+1].v=w.v[i]end;pc=INV(fn,a1)end elseif o==32 then lp[#lp]=nil;pc=INV(fn,a1)elseif o==33 then local la=LINV(fn,a1);local ld=LINV(fn,d);lc[ld+1]=lc[ld+1]or{v=nil};lc[ld+1].v=N(c,lc[la]and lc[la].v,P.k[CINV(fn,b)+1])elseif o==34 then local la=LINV(fn,a1);local lb=LINV(fn,b);local ld=LINV(fn,d);lc[ld+1]=lc[ld+1]or{v=nil};lc[ld+1].v=N(c,lc[la]and lc[la].v,lc[lb]and lc[lb].v)elseif o==35 then local v=V(GG(P.k[CINV(fn,b)+1]),{});r[a1]=c==1 and v or v.v[1]elseif o==38 or o==48 then if not N(c,r[a1],r[b])then pc=INV(fn,d)end elseif o==39 or o==49 then if N(c,r[a1],r[b])then pc=INV(fn,d)end else error('X71 opcode')end end;return M({nil},1)end;return X(t,P,id,pl,pu,a)end";
     if (options.preferNativeGlobals === true) {
         const oldEnv = "local G=GE or RE or FE or EE or _G;local GG=function(k)local v=GE and GE[k]or nil;if v~=nil then return v end;v=RE and RE[k]or nil;if v~=nil then return v end;v=FE and FE[k]or nil;if v~=nil then return v end;v=EE and EE[k]or nil;if v~=nil then return v end;v=_G and _G[k]or nil;if v~=nil then return v end;v=G and G[k]or nil;if v~=nil then return v end;error('X71 global '..tostring(k))end;local SG=function(k,v)if GE then GE[k]=v elseif RE then RE[k]=v elseif FE then FE[k]=v elseif EE then EE[k]=v else G[k]=v end end;";
         const newEnv = "local G=RE or _G or FE or EE or GE;local function HG(env,k,gameOnly)local v=env and env[k]or nil;if gameOnly and k=='game' then if type(v)=='function'or v==nil then return nil end;local ok,m=pcall(function()return v.GetService end);if not ok or type(m)~='function'then return nil end end;return v end;local GG=function(k)if k=='game' then local v=HG(RE,k,true);if v~=nil then return v end;v=HG(_G,k,true);if v~=nil then return v end;v=HG(FE,k,true);if v~=nil then return v end;v=HG(EE,k,true);if v~=nil then return v end;v=HG(GE,k,true);if v~=nil then return v end;error('X71 global game unavailable')end;local v=GE and GE[k]or nil;if v~=nil then return v end;v=RE and RE[k]or nil;if v~=nil then return v end;v=FE and FE[k]or nil;if v~=nil then return v end;v=EE and EE[k]or nil;if v~=nil then return v end;v=_G and _G[k]or nil;if v~=nil then return v end;v=G and G[k]or nil;if v~=nil then return v end;error('X71 global '..tostring(k))end;local SG=function(k,v)if RE then RE[k]=v elseif FE then FE[k]=v elseif EE then EE[k]=v elseif _G then _G[k]=v elseif GE then GE[k]=v else G[k]=v end end;";

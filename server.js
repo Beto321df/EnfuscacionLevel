@@ -9,7 +9,12 @@ const getScript = require('./api/get-script');
 
 const PORT = Number(process.env.PORT) || 10000;
 const HOST = '0.0.0.0';
-const INDEX = path.join(__dirname, 'index.html');
+const WEB_ROOT = path.join(__dirname, 'Servidor');
+const INDEX = path.join(WEB_ROOT, 'index.html');
+const WEB_ASSETS = Object.freeze({
+  '/Servidor/style.css': { file: path.join(WEB_ROOT, 'style.css'), type: 'text/css; charset=utf-8' },
+  '/Servidor/app.js': { file: path.join(WEB_ROOT, 'app.js'), type: 'application/javascript; charset=utf-8' }
+});
 const PACKAGE = require('./package.json');
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
 
@@ -178,6 +183,20 @@ async function dispatch(req, res) {
 
   if (pathname === '/') {
     return serveIndex(req, res);
+  }
+
+  const asset = WEB_ASSETS[pathname];
+  if (asset) {
+    try {
+      const data = await fs.promises.readFile(asset.file);
+      res.statusCode = 200;
+      res.setHeader('Content-Type', asset.type);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      return res.end(data);
+    } catch (error) {
+      console.error('web asset serve error:', pathname, error);
+      return sendText(res, 404, 'Web asset not found.');
+    }
   }
 
   if (pathname === '/favicon.png') {

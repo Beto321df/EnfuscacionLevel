@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#09090b">
+  <meta name="application-name" content="nyvex Z">
+  <meta name="description" content="nyvex — Luau + Lua obfuscation powered by Z3.">
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png?v=2">
+  <link rel="apple-touch-icon" href="/favicon.png?v=2">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="/Servidor/style.css?v=1">
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+</head>
+<body>
+<div class="ambient" aria-hidden="true">
+  <span class="orb orb-a"></span>
+  <span class="orb orb-b"></span>
+  <span class="orb orb-c"></span>
+  <span class="grid-glow"></span>
+</div>
+
+<div class="app">
+  <nav class="nav">
+    <a class="brand" href="/" aria-label="nyvex home">
+      <span class="brand-mark"><img src="/favicon.png?v=2" alt="" aria-hidden="true"></span>
+      <span class="brand-name">nyvex enfuscador</span>
+    </a>
+
+    <div class="nav-right" id="public-nav">
+      <a class="nav-link" href="https://discord.gg/6yw4xFPE6" target="_blank" rel="noopener">
+        <i class="fa-brands fa-discord"></i><span>Discord</span>
+      </a>
+      <a class="nav-link" href="https://www.tiktok.com/@znoreste" target="_blank" rel="noopener">
+        <i class="fa-brands fa-tiktok"></i><span>TikTok</span>
+      </a>
+      <button class="nav-btn" id="start-btn" type="button">Get started</button>
+    </div>
+
+    <div class="nav-right hidden" id="private-nav">
+      <a class="nav-link" href="https://discord.gg/6yw4xFPE6" target="_blank" rel="noopener">
+        <i class="fa-brands fa-discord"></i><span>Discord</span>
+      </a>
+      <button class="nav-link" id="logout-btn" type="button">Sign out</button>
+      <div class="badge user-badge"><i class="fa-solid fa-user"></i> <span id="nav-user">user</span></div>
+    </div>
+  </nav>
+
+  <main>
+    <section id="view-login" class="view view-login">
+      <div class="hero">
+        <div class="hero-copy reveal">
+          <div class="eyebrow"><span class="pulse-dot"></span>// LUAU + LUA OBFUSCATION</div>
+          <h1>Ship the script.<br><span class="accent-text">Keep the source.</span></h1>
+          <p class="lead">nyvex convierte tu Luau en un loader protegido usando el motor Z3: bytecode propio, VM, payload Unicode visual y protección server-side.</p>
+
+          <div class="hero-actions">
+            <button class="btn btn-primary btn-glow" id="hero-login" type="button">
+              <i class="fa-solid fa-arrow-right"></i><span>Enter dashboard</span>
+            </button>
+            <a class="btn btn-secondary" href="https://github.com/Beto321df/EnfuscacionLevel" target="_blank" rel="noopener">
+              <i class="fa-brands fa-github"></i><span>GitHub</span>
+            </a>
+          </div>
+
+          <div class="stats">
+            <div class="stat"><strong>Z3</strong><span>engine</span></div>
+            <div class="stat"><strong>40</strong><span>visual glyphs</span></div>
+            <div class="stat"><strong>12</strong><span>chars / line</span></div>
+            <div class="stat"><strong>VM</strong><span>runtime</span></div>
+          </div>
+        </div>
+
+        <div class="preview-stack reveal reveal-delay">
+          <div class="code-card tilt-card">
+            <div class="code-head">
+              <span><span class="terminal-dot"></span>$ nyvex source.lua</span>
+              <span class="badge">INPUT</span>
+            </div>
+            <div class="code"><span class="k">local function</span> <span class="f">grantReward</span>(player, amount)
+  <span class="k">local</span> stats = player:FindFirstChild(<span class="s">"leaderstats"</span>)
+  <span class="k">if not</span> stats <span class="k">then return end</span>
+  stats.Coins.Value += amount
+<span class="k">end</span></div>
+          </div>
+
+          <div class="code-card output-card tilt-card">
+            <div class="code-head">
+              <span><span class="terminal-dot output-dot"></span>$ nyvex z3 stream</span>
+              <span class="badge good">OUTPUT</span>
+            </div>
+            <div class="code output-code">
+              乩乡乤丽^@乵"乣乴+_)乯乮/ 丨?>乵乲书乩乨)(*乷丩/ 乲乥!乵乲1)_乥乶乷九!@?
+            </div>
+            <div class="scanline"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-dashboard" class="hidden view">
+      <div class="dash-header section-reveal">
+        <div>
+          <div class="eyebrow">// DASHBOARD</div>
+          <h2>Your scripts</h2>
+        </div>
+        <p id="slot-count">0/10 slots used</p>
+      </div>
+      <div id="dash-alert"></div>
+      <div class="script-list" id="script-list"></div>
+      <div class="new-script-wrap">
+        <button class="btn btn-primary btn-glow" id="new-script" type="button">
+          <i class="fa-solid fa-plus"></i><span>New script</span>
+        </button>
+      </div>
+    </section>
+
+    <section id="view-editor" class="hidden view">
+      <div class="editor-top section-reveal">
+        <div>
+          <div class="eyebrow" id="editor-eyebrow">// NEW SCRIPT</div>
+          <h2 id="editor-heading">Protect code</h2>
+        </div>
+        <p class="status-chip" id="editor-state">READY</p>
+      </div>
+
+      <div id="editor-alert"></div>
+
+      <div class="field">
+        <label class="label" for="script-id">Script ID</label>
+        <div class="field-wrap">
+          <i class="fa-solid fa-hashtag"></i>
+          <input class="input" id="script-id" maxlength="80" placeholder="my-script" autocomplete="off">
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="label" for="script-code">Lua / Luau</label>
+        <div class="editor">
+          <div class="editor-bar">
+            <span><i class="fa-regular fa-file-code"></i> source.lua</span>
+            <span id="line-counter">Lines: 1 / 5000</span>
+          </div>
+          <textarea id="script-code" spellcheck="false" placeholder="Paste your Luau here..."></textarea>
+        </div>
+      </div>
+
+      <div class="editor-actions">
+        <button class="btn btn-secondary" id="cancel-editor" type="button">Cancel</button>
+        <button class="btn btn-primary btn-glow" id="save-script" type="button">
+          <i class="fa-solid fa-shield-halved"></i><span>Protect &amp; save</span>
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <footer>nyvex <span>•</span> Z3 visual Lua/Luau protection</footer>
+</div>
+
+<div class="modal hidden" id="auth-modal">
+  <div class="modal-backdrop"></div>
+  <div class="modal-card modal-enter">
+    <div class="modal-icon"><i class="fa-solid fa-shield-halved"></i></div>
+    <h3 class="modal-title">Access dashboard</h3>
+    <p class="modal-desc" id="auth-desc">Enter your username and account password.</p>
+    <div id="auth-alert"></div>
+
+    <div class="tabs">
+      <button class="tab active" id="tab-signin" type="button">Sign in</button>
+      <button class="tab" id="tab-signup" type="button">Sign up</button>
+    </div>
+
+    <div class="panel-body">
+      <div class="field">
+        <label class="label" for="auth-user">Username</label>
+        <div class="field-wrap">
+          <i class="fa-solid fa-user"></i>
+          <input class="input" id="auth-user" maxlength="40" autocomplete="username" placeholder="username">
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="label" for="auth-pass">Account password</label>
+        <div class="field-wrap password-wrap">
+          <i class="fa-solid fa-lock"></i>
+          <input class="input" id="auth-pass" type="password" maxlength="128" autocomplete="current-password" placeholder="password">
+          <button class="toggle-password" id="toggle-password" type="button" aria-label="Show password">
+            <i class="fa-solid fa-eye"></i>
+          </button>
+        </div>
+      </div>
+
+      <button class="btn btn-primary btn-glow wide-btn" id="auth-next" type="button">Continue</button>
+    </div>
+
+    <button class="nav-link modal-close" id="close-auth" type="button">Cancel</button>
+  </div>
+</div>
+
+<div class="modal hidden" id="pin-modal">
+  <div class="modal-backdrop"></div>
+  <div class="modal-card modal-enter">
+    <div class="modal-icon"><i class="fa-solid fa-key"></i></div>
+    <h3 class="modal-title">Enter PIN</h3>
+    <p class="modal-desc">4-digit account PIN.</p>
+    <div id="pin-alert"></div>
+
+    <div class="pin-row">
+      <input class="input pin" inputmode="numeric" maxlength="1" aria-label="PIN digit 1">
+      <input class="input pin" inputmode="numeric" maxlength="1" aria-label="PIN digit 2">
+      <input class="input pin" inputmode="numeric" maxlength="1" aria-label="PIN digit 3">
+      <input class="input pin" inputmode="numeric" maxlength="1" aria-label="PIN digit 4">
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="close-pin" type="button">Cancel</button>
+      <button class="btn btn-primary btn-glow" id="confirm-pin" type="button">Unlock</button>
+    </div>
+  </div>
+</div>
+
+<div class="loading hidden" id="loading">
+  <div class="loading-card">
+    <div class="spinner-ring"></div>
+    <div class="loading-bar"><span></span></div>
+    <div id="loading-text">Working...</div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="/Servidor/app.js?v=1"></script>
+</body>
+</html>

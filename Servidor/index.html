@@ -32,17 +32,17 @@
     </a>
 
     <div class="nav-right" id="public-nav">
-      <a class="nav-link" href="https://discord.gg/6yw4xFPE6" target="_blank" rel="noopener">
-        <i class="fa-brands fa-discord"></i><span>Discord</span>
+      <a class="nav-link social-icon" href="https://discord.gg/jHShnpdKCC" target="_blank" rel="noopener" aria-label="Discord" title="Discord">
+        <i class="fa-brands fa-discord"></i>
       </a>
-      <a class="nav-link" href="https://www.tiktok.com/@znoreste" target="_blank" rel="noopener">
-        <i class="fa-brands fa-tiktok"></i><span>TikTok</span>
+      <a class="nav-link social-icon" href="https://www.tiktok.com/@znoreste" target="_blank" rel="noopener" aria-label="TikTok" title="TikTok">
+        <i class="fa-brands fa-tiktok"></i>
       </a>
       <button class="nav-btn" id="start-btn" type="button">Get started</button>
     </div>
 
     <div class="nav-right hidden" id="private-nav">
-      <a class="nav-link" href="https://discord.gg/6yw4xFPE6" target="_blank" rel="noopener">
+      <a class="nav-link" href="https://discord.gg/jHShnpdKCC" target="_blank" rel="noopener">
         <i class="fa-brands fa-discord"></i><span>Discord</span>
       </a>
       <button class="nav-link" id="logout-btn" type="button">Sign out</button>
@@ -58,13 +58,9 @@
           <h1>Ship the script.<br><span class="accent-text">Keep the source.</span></h1>
           <p class="lead">nyvex convierte tu Luau en un loader protegido usando el motor Z3: bytecode propio, VM, payload Unicode visual y protección server-side.</p>
 
-          <div class="hero-actions">
-            <button class="btn btn-primary btn-glow" id="hero-login" type="button">
-              <i class="fa-solid fa-arrow-right"></i><span>Enter dashboard</span>
-            </button>
-            <a class="btn btn-secondary" href="https://github.com/Beto321df/EnfuscacionLevel" target="_blank" rel="noopener">
-              <i class="fa-brands fa-github"></i><span>GitHub</span>
-            </a>
+          <div class="hero-actions hero-note">
+            <span class="home-status"><span class="status-dot"></span> Z3 protection online</span>
+            <span class="home-hint">Use <strong>Get started</strong> to access your dashboard.</span>
           </div>
 
           <div class="stats">
@@ -108,7 +104,7 @@
           <div class="eyebrow">// DASHBOARD</div>
           <h2>Your scripts</h2>
         </div>
-        <p id="slot-count">0/10 slots used</p>
+        <p id="slot-count">0/3 slots used</p>
       </div>
       <div id="dash-alert"></div>
       <div class="script-list" id="script-list"></div>
@@ -145,7 +141,7 @@
             <span><i class="fa-regular fa-file-code"></i> source.lua</span>
             <span id="line-counter">Lines: 1 / 5000</span>
           </div>
-          <textarea id="script-code" spellcheck="false" placeholder="Paste your Luau here..."></textarea>
+          <textarea id="script-code" spellcheck="false" placeholder="Paste your Luau here..." maxlength="1200000"></textarea>
         </div>
       </div>
 

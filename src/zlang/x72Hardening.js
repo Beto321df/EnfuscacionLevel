@@ -4,9 +4,29 @@ const { validateIR } = require('./ir');
 
 function rand(min, max) { return crypto.randomInt(min, max + 1); }
 
+const constantCaches = new WeakMap();
+
+function constantKey(type, value) {
+    return String(type) + ':' + (typeof value === 'string' ? value : String(value));
+}
+
 function addConstant(program, type, value) {
+    let cache = constantCaches.get(program);
+    if (!cache) {
+        cache = new Map();
+        for (let i = 0; i < program.constants.length; i += 1) {
+            cache.set(constantKey(program.constants[i].type, program.constants[i].value), i);
+        }
+        constantCaches.set(program, cache);
+    }
+
+    const key = constantKey(type, value);
+    const existing = cache.get(key);
+    if (existing !== undefined) return existing;
+
     const index = program.constants.length;
     program.constants.push({ type, value });
+    cache.set(key, index);
     return index;
 }
 
@@ -56,13 +76,22 @@ function compactConstantPool(program) {
         }
     }
 
+    const valueMap=new Map();
     const map=new Map();
     const next=[];
     for(let i=0;i<program.constants.length;i+=1) {
-        if(used.has(i)) {
-            map.set(i,next.length);
-            next.push(program.constants[i]);
+        if(!used.has(i)) continue;
+        const c=program.constants[i];
+        const key=constantKey(c.type,c.value);
+        const existing=valueMap.get(key);
+        if(existing!==undefined) {
+            map.set(i,existing);
+            continue;
         }
+        const newIndex=next.length;
+        valueMap.set(key,newIndex);
+        map.set(i,newIndex);
+        next.push(c);
     }
 
     for(const fn of program.functions||[]) {

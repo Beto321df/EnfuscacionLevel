@@ -278,6 +278,12 @@ function analyzeHeights(code, blocks, byStart) {
     return heights;
 }
 
+function analyzeStackHeights(code) {
+    const { blocks: allBlocks, byStart } = buildBlocks(code || []);
+    const blocks = reachableBlocks(allBlocks, byStart);
+    return analyzeHeights(code || [], blocks, byStart);
+}
+
 function makeEntryRegisters(blocks, heights) {
     let next = 0;
     const entries = new Map();
@@ -793,4 +799,4 @@ function validateRegisterProgram(program) {
     return program;
 }
 
-module.exports = { REG_OPS, REG_OPCODE_COUNT, REG_ALIAS_BASE, REGISTER_FIELDS, PC_MUL, PC_INV, registerizeProgram, fuseRegisterComparisons, encodeRegisterControlTargets, permuteRegisterFile, diversifyRegisterIsa, validateRegisterProgram };
+module.exports = { REG_OPS, REG_OPCODE_COUNT, REG_ALIAS_BASE, REGISTER_FIELDS, PC_MUL, PC_INV, analyzeStackHeights, registerizeProgram, fuseRegisterComparisons, encodeRegisterControlTargets, permuteRegisterFile, diversifyRegisterIsa, validateRegisterProgram };

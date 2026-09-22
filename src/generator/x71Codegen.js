@@ -436,7 +436,7 @@ function buildContainer(program, options = {}) {
         [37, codeSection],
         [53, ledgerSection]
     ];
-    const featureMask = (encodeLocalOperands ? 1 : 0) | (encodeInstructionRoute ? 2 : 0) | (encodeOperandFeedback ? 4 : 0) | (encodeConstantRoute ? 8 : 0) | (encodeTargetTokens ? 16 : 0);
+    const featureMask = (encodeLocalOperands ? 1 : 0) | (encodeInstructionRoute ? 2 : 0) | (encodeOperandFeedback ? 4 : 0) | (encodeConstantRoute ? 8 : 0) | (encodeTargetTokens ? 16 : 0) | (compactRoutes ? 32 : 0) | (variableOperands ? 64 : 0);
     if (featureMask) sectionPairs.push([71, [featureMask]]);
     const ordered = shuffle(sectionPairs);
     const bytes = [...MAGIC, ordered.length];

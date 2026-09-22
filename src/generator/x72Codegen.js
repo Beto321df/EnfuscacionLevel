@@ -101,7 +101,8 @@ class X72CodeGenerator {
             polymorphicShell: feature('polymorphicShell', !denseTransport),
             polymorphicDispatch: feature('polymorphicDispatch', !denseTransport),
             rollingPayload: true,
-            lazyConstants: true
+            lazyConstants: true,
+            compactRuntime: true
         });
     }
 }

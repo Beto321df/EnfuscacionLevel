@@ -6,6 +6,10 @@ services:
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /health
+    renderSubdomainPolicy: enabled
+    autoDeployTrigger: commit
     envVars:
+      - key: NODE_ENV
+        value: production
       - key: FIREBASE_SECRET
         sync: false

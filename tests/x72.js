@@ -214,7 +214,7 @@ assert(mediumOut.startsWith('return ({p='),'X7.2 medium benchmark debe generar')
 assert.strictEqual(mediumOut.includes('\\n'),false,'X7.2 medium benchmark debe seguir en una línea');
 luaparse.parse(mediumOut,{wait:false,comments:false,luaVersion:'5.1'});
 
-const longSource=Array.from({length:4999},(_,i)=>`local v${i}=${i}`).join('\\n')+'\\nprint(v4998)';
+const longSource=Array.from({length:4999},(_,i)=>`local v${i}=${i}`).join('\n')+'\nprint(v4998)';
 const longOut=new X72().generate(longSource,{preset:'strong'});
 assert(longOut.startsWith('return ({p='),'X7.2 debe aceptar 5000 líneas');
 assert.strictEqual(longOut.includes('\\n'),false,'X7.2 5000 líneas debe seguir en una línea');

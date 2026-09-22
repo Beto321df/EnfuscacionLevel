@@ -5,6 +5,7 @@ const { encodeProgram } = require('../src/zlang/format3');
 const { REG_OPS, REG_OPCODE_COUNT, validateRegisterProgram } = require('../src/zlang/registerVm');
 const { verifyProgram } = require('../src/zlang/verifier');
 const { analyzeProgram } = require('../src/zlang/analysis');
+const { buildNativeProgram } = require('../src/zlang/nativeCompiler');
 
 function directProgram() {
     return {
@@ -91,5 +92,55 @@ assert.strictEqual(paramCount, 0);
 const stats = analyzeProgram(emitted);
 assert(stats.functionCount === 1 && stats.instructionCount > 0 && stats.blockCount > 0);
 assert(stats.maxLiveRegisters >= 0);
+
+// Registerizer CFG regression: dead blocks after return/break/continue must not
+// participate in stack-height merges.
+const cfgCases = [
+    `local function choose(x)
+    if x > 0 then
+        return 10
+    else
+        return 20
+    end
+    print("unreachable")
+end
+print(choose(1))`,
+    `local total=0
+while total < 10 do
+    total = total + 1
+    if total == 4 then
+        break
+    end
+    if total == 2 then
+        continue
+    end
+    total = total + 1
+end
+print(total)`,
+    `local function branch(x)
+    if x then
+        local a=1
+        if a==1 then return "yes" end
+    end
+    return "no"
+end
+print(branch(true),branch(false))`
+];
+
+for (const source of cfgCases) {
+    const native = buildNativeProgram(source, {
+        fallback: false,
+        polymorphOptions: { chance: 0, maxPerFunction: 0 }
+    });
+    const plan = buildEmissionPlan(native, {
+        backend: 'register',
+        diversify: { stringChance: 0, numberChance: 0 },
+        registers: { chance: 0 },
+        isa: { aliasChance: 0 }
+    });
+    validateRegisterProgram(plan);
+    verifyProgram(plan, { backend: 'register' });
+}
+
 
 console.log('Z3 architecture v3.2-dev.5: opcode table, format layout, verifier and CFG/liveness analysis: OK');

@@ -193,8 +193,12 @@ const exactOut=new X72().generate(exactSource,{preset:'maximum'});
 assert(exactOut.startsWith('return ({p='),'X7.2 exact benchmark debe generarse');
 assert.strictEqual(exactOut.includes('\\n'),false,'X7.2 exact benchmark debe seguir en una sola línea');
 
-const a=new X72().generate('local x=10\\nlocal s="abcdefghijklmnop"\\nprint(s,x)',{preset:'maximum'});
-const b=new X72().generate('local x=10\\nlocal s="abcdefghijklmnop"\\nprint(s,x)',{preset:'maximum'});
+const a=new X72().generate(`local x=10
+local s="abcdefghijklmnop"
+print(s,x)`,{preset:'maximum'});
+const b=new X72().generate(`local x=10
+local s="abcdefghijklmnop"
+print(s,x)`,{preset:'maximum'});
 assert.notStrictEqual(a,b,'X7.2 debe diversificar cada build');
 assert(a.length>12000,'X7.2 debe conservar sus capas de runtime');
 assert(a.length<1024*1024,'X7.2 debe respetar el límite de 1 MB');
@@ -203,7 +207,7 @@ const mediumSource=Array.from({length:500},(_,i)=>[
     `local cfg${i}={id=${i},enabled=${i%2===0},name="item-${i}"}`,
     `cfg${i}.value=(${i}*3+${i%11})%101`,
     `if cfg${i}.enabled then cfg${i}.tag=cfg${i}.name else cfg${i}.tag="off" end`
-].join('\\n')).join('\\n');
+].join('\n')).join('\n');
 const mediumOut=new X72().generate(mediumSource,{preset:'maximum'});
 assert(mediumOut.length<=100*1024,'X7.2 500-line output should stay at or below 100KB');
 assert(mediumOut.startsWith('return ({p='),'X7.2 medium benchmark debe generar');

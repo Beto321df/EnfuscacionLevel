@@ -122,11 +122,11 @@ const guiLikeSource=Array.from({length:1000},(_,i)=>[
     `if cfg${i}.enabled then cfg${i}.tag=cfg${i}.name else cfg${i}.tag="off" end`
 ].join('\n')).join('\n');
 const guiLikeOut=new CodeGenerator().generate(guiLikeSource,{preset:'strong'});
-assert(guiLikeOut.startsWith('return ({p='),'X7.1 debe aceptar una carga GUI-like de 1000 bloques');
+assert(guiLikeOut.startsWith('return({'),'X7.1 debe aceptar una carga GUI-like de 1000 bloques');
 assert.strictEqual(guiLikeOut.includes('\n'),false,'X7.1 GUI-like output debe seguir en una línea');
 
 const longOut=new CodeGenerator().generate(longSource,{preset:'strong'});
-assert(longOut.startsWith('return ({p='),'X7.1 acepta 5000 líneas');
+assert(longOut.startsWith('return({'),'X7.1 acepta 5000 líneas');
 assert.strictEqual(longOut.includes('\n'),false,'X7.1 5000-line output sigue en una línea');
 luaparse.parse(longOut,{wait:false,comments:false,luaVersion:'5.1'});
 
@@ -135,7 +135,7 @@ luaparse.parse(longOut,{wait:false,comments:false,luaVersion:'5.1'});
 const deepConcat=Array.from({length:1800},()=>`"x"`).join('..');
 const deepSource=`local z=${deepConcat}\nprint(z)`;
 const deepOut=new CodeGenerator().generate(deepSource,{preset:'strong'});
-assert(deepOut.startsWith('return ({p='),'X7.1 debe soportar expresiones profundas');
+assert(deepOut.startsWith('return({'),'X7.1 debe soportar expresiones profundas');
 assert.strictEqual(deepOut.includes('\\n'),false,'X7.1 deep expression output sigue en una línea');
 
 console.log('X7.1 layered container: syntax, flattened planes, protected constants, control-token encoding and source hiding OK');

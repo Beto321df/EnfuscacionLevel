@@ -5,3 +5,6 @@ services:
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /health
+    envVars:
+      - key: FIREBASE_SECRET
+        sync: false

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#0b0b0e">
-  <title>nyvex Z...</title>
+  <title>nyvex Z</title>
   <link rel="icon" href="data:,">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,7 +20,7 @@
 <body>
 <div class="app">
   <nav class="nav">
-    <div class="brand"><div class="brand-mark">N.</div><span>nyvex enfuscador</span></div>
+    <div class="brand"><div class="brand-mark">N</div><span>nyvex enfuscador</span></div>
     <div class="nav-right" id="public-nav">
       <a class="nav-link" href="https://discord.gg/6yw4xFPE6" target="_blank" rel="noopener"><i class="fa-brands fa-discord"></i> Discord</a>
       <a class="nav-link" href="https://www.tiktok.com/@znoreste" target="_blank" rel="noopener"><i class="fa-brands fa-tiktok"></i> TikTok</a>
@@ -36,7 +36,7 @@
   <main>
     <section id="view-login">
       <div class="hero">
-        <div><div class="eyebrow">// LUAU + LUA1 OBFUSCATION</div><h1>Ship the script.<br>Keep the source.</h1><p class="lead">nyvex convierte tu Luau en un loader protegido usando el motor Z3: bytecode propio, VM, payload Unicode visual y protección server-side.</p><div class="hero-actions"><button class="btn btn-primary" id="hero-login"><i class="fa-solid fa-arrow-right"></i> Enter dashboard</button><a class="btn btn-secondary" href="https://github.com/Beto321df/EnfuscacionLevel" target="_blank" rel="noopener"><i class="fa-brands fa-github"></i> GitHub</a></div><div class="stats"><div class="stat"><strong>Z3</strong><span>engine</span></div><div class="stat"><strong>40</strong><span>visual glyphs</span></div><div class="stat"><strong>12</strong><span>chars / line</span></div><div class="stat"><strong>VM</strong><span>runtime</span></div></div></div>
+        <div><div class="eyebrow">// LUAU + LUA OBFUSCATION</div><h1>Ship the script.<br>Keep the source.</h1><p class="lead">nyvex convierte tu Luau en un loader protegido usando el motor Z3: bytecode propio, VM, payload Unicode visual y protección server-side.</p><div class="hero-actions"><button class="btn btn-primary" id="hero-login"><i class="fa-solid fa-arrow-right"></i> Enter dashboard</button><a class="btn btn-secondary" href="https://github.com/Beto321df/EnfuscacionLevel" target="_blank" rel="noopener"><i class="fa-brands fa-github"></i> GitHub</a></div><div class="stats"><div class="stat"><strong>Z3</strong><span>engine</span></div><div class="stat"><strong>40</strong><span>visual glyphs</span></div><div class="stat"><strong>12</strong><span>chars / line</span></div><div class="stat"><strong>VM</strong><span>runtime</span></div></div></div>
         <div class="preview-stack"><div class="code-card"><div class="code-head"><span>$ nyvex source.lua</span><span class="badge">INPUT</span></div><div class="code"><span class="k">local function</span> <span class="f">grantReward</span>(player, amount)
   <span class="k">local</span> stats = player:FindFirstChild(<span class="s">"leaderstats"</span>)
   <span class="k">if not</span> stats <span class="k">then return end</span>
@@ -49,7 +49,7 @@
 
     <section id="view-editor" class="hidden"><div class="editor-top"><div><div class="eyebrow" id="editor-eyebrow">// NEW SCRIPT</div><h2 id="editor-heading">Protect code</h2></div><p id="editor-state">READY</p></div><div id="editor-alert"></div><div class="field"><label class="label" for="script-id">Script ID</label><div class="field-wrap"><i class="fa-solid fa-hashtag"></i><input class="input" id="script-id" maxlength="80" placeholder="my-script"></div></div><div class="field"><label class="label" for="script-code">Lua / Luau</label><div class="editor"><div class="editor-bar"><span>source.lua</span><span id="line-counter">Lines: 1 / 5000</span></div><textarea id="script-code" spellcheck="false" placeholder="Paste your Luau here..."></textarea></div></div><div class="editor-actions"><button class="btn btn-secondary" id="cancel-editor">Cancel</button><button class="btn btn-primary" id="save-script"><i class="fa-solid fa-shield-halved"></i> Protect &amp; save</button></div></section>
   </main>
-  <footer>nyvex • Z3 visual Lua/Luau protection</footer>
+  <footer>nyvex</footer>
 </div>
 
 <div class="modal hidden" id="auth-modal"><div class="modal-card"><h3 class="modal-title">Access dashboard</h3><p class="modal-desc" id="auth-desc">Enter your username and account password.</p><div id="auth-alert"></div><div class="tabs"><button class="tab active" id="tab-signin">Sign in</button><button class="tab" id="tab-signup">Sign up</button></div><div class="panel-body"><div class="field"><label class="label" for="auth-user">Username</label><div class="field-wrap"><i class="fa-solid fa-user"></i><input class="input" id="auth-user" maxlength="40" autocomplete="username" placeholder="username"></div></div><div class="field"><label class="label" for="auth-pass">Account password</label><div class="field-wrap password-wrap"><i class="fa-solid fa-lock"></i><input class="input" id="auth-pass" type="password" maxlength="128" autocomplete="current-password" placeholder="password"><button class="toggle-password" id="toggle-password" type="button" aria-label="Show password"><i class="fa-solid fa-eye"></i></button></div></div><button class="btn btn-primary" id="auth-next" style="width:100%">Continue</button></div><button class="nav-link" id="close-auth" style="width:100%;margin-top:5px">Cancel</button></div></div><div class="modal hidden" id="pin-modal"><div class="modal-card"><h3 class="modal-title">Enter PIN</h3><p class="modal-desc">4-digit account PIN.</p><div id="pin-alert"></div><div class="pin-row"><input class="input pin" inputmode="numeric" maxlength="1"><input class="input pin" inputmode="numeric" maxlength="1"><input class="input pin" inputmode="numeric" maxlength="1"><input class="input pin" inputmode="numeric" maxlength="1"></div><div class="modal-actions"><button class="btn btn-secondary" id="close-pin">Cancel</button><button class="btn btn-primary" id="confirm-pin">Unlock</button></div></div></div>

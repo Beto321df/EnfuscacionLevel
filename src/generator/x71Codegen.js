@@ -748,13 +748,12 @@ function x71Loader(program, options = {}) {
 
     if (options.compactRuntime === true) {
         D = compactRuntimeSource(D)
-            .replace("D=function(t)", "function(p,a,n,k,s,m)")
-            .replaceAll("t.p", "p")
+            .replace("D=function(t)local s=t.p;", "function(p,a,n,k,w,h)local s=p;")
             .replaceAll("t.a", "a")
             .replaceAll("t.n", "n")
             .replaceAll("t.k", "k")
-            .replaceAll("t.s", "s")
-            .replaceAll("t.m", "m");
+            .replaceAll("t.s", "w")
+            .replaceAll("t.m", "h");
 
         O = compactRuntimeSource(O)
             .replace("O=function(t,P,id,pl,pu,a)", "function(P,id,pl,pu,a)")

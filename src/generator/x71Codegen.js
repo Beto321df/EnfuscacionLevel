@@ -493,12 +493,14 @@ function validateContainer(bytes) {
     if (expected !== got) throw new Error('X7.1: seal interno inválido.');
     const C = sections.get(11), M = sections.get(19), I = sections.get(37), L = sections.get(53), F = sections.get(71);
     if (!C || !M || !I || !L) throw new Error('X7.1: faltan secciones.');
-    if (F && (F.length !== 1 || (F[0] & 31) !== F[0])) throw new Error('X7.1: feature section inválida.');
+    if (F && (F.length !== 1 || (F[0] & 127) !== F[0])) throw new Error('X7.1: feature section inválida.');
     const localMask = Boolean(F && (F[0] & 1));
     const routeMask = Boolean(F && (F[0] & 2));
     const feedbackMask = Boolean(F && (F[0] & 4));
     const constantMask = Boolean(F && (F[0] & 8));
     const targetTokenMask = Boolean(F && (F[0] & 16));
+    const compactRoutes = Boolean(F && (F[0] & 32));
+    const variableOperands = Boolean(F && (F[0] & 64));
     if (L.length !== 16) throw new Error('X7.1: ledger inválido.');
 
     const readSection = section => {
@@ -507,12 +509,22 @@ function validateContainer(bytes) {
         const one = () => { if (q >= b.length) throw new Error('X7.1: sección truncada.'); return b[q++]; };
         const two = () => { const a=one(),d=one(); return a*256+d; };
         const four = () => { const a=one(),d=one(),e=one(),g=one(); return a*16777216+d*65536+e*256+g; };
-        return { b, one, two, four, get pos(){ return q; } };
+        const variable = () => {
+            let value = 0, mul = 1;
+            for (let i = 0; i < 5; i += 1) {
+                const byte = one();
+                value += (byte % 128) * mul;
+                if (byte < 128) return value;
+                mul *= 128;
+            }
+            throw new Error('X7.1: varint inválido.');
+        };
+        return { b, one, two, four, variable, get pos(){ return q; } };
     };
 
     const cs = readSection(C);
     const rc = cs.two();
-    if (constantMask) for (let i = 0; i < rc; i += 1) cs.four();
+    if (constantMask) for (let i = 0; i < rc; i += 1) compactRoutes ? cs.two() : cs.four();
     for (let i = 0; i < rc; i += 1) {
         const len = cs.four();
         const end = cs.pos + len;
@@ -554,13 +566,13 @@ function validateContainer(bytes) {
         for (let j=0;j<4;j+=1) is.one();
         for (let j=0;j<6;j+=1) is.four();
         if (localMask) for (let j=0;j<2;j+=1) is.four();
-        if (targetTokenMask) for (let j=0;j<countIns;j+=1) is.four();
-        if (routeMask) for (let j=0;j<countIns;j+=1) is.four();
+        if (targetTokenMask) for (let j=0;j<countIns;j+=1) compactRoutes ? is.two() : is.four();
+        if (routeMask) for (let j=0;j<countIns;j+=1) compactRoutes ? is.two() : is.four();
         for (let j=0;j<countIns;j+=1) is.one();
         for (let j=0;j<56;j+=1) is.one();
         for (let j=0;j<8;j+=1) is.four();
         if (feedbackMask) for (let j=0;j<4;j+=1) is.four();
-        for (let j=0;j<countIns*4;j+=1) is.four();
+        for (let j=0;j<countIns*4;j+=1) variableOperands ? is.variable() : is.four();
     }
     if (is.pos !== I.length) throw new Error('X7.1: cola en bytecode plano.');
 

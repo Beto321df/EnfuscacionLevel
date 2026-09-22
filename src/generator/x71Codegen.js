@@ -724,7 +724,7 @@ function makeCompactShellNames() {
         guard: take(),
         decoder: take(),
         executor: take(),
-        runner: take()
+        packer: take()
     };
 }
 function x71Loader(program, options = {}) {
@@ -745,21 +745,65 @@ function x71Loader(program, options = {}) {
     if (options.polymorphicDispatch === true && options.compactRuntime !== true) {
         O = polymorphDispatchSource(O, makeDispatchTokens());
     }
+
     if (options.compactRuntime === true) {
-        D = compactRuntimeSource(D);
-        O = compactRuntimeSource(O);
+        D = compactRuntimeSource(D)
+            .replace("D=function(t)", "function(p,a,n,k,s,m)")
+            .replaceAll("t.p", "p")
+            .replaceAll("t.a", "a")
+            .replaceAll("t.n", "n")
+            .replaceAll("t.k", "k")
+            .replaceAll("t.s", "s")
+            .replaceAll("t.m", "m");
+
+        O = compactRuntimeSource(O)
+            .replace("O=function(t,P,id,pl,pu,a)", "function(P,id,pl,pu,a)")
+            .replace("X=function(t,P,id,pl,pu,a)", "X=function(P,id,pl,pu,a)")
+            .replaceAll("X(t,P,", "X(P,");
+
+        const shell = makeCompactShellNames();
+        const guard = options.runtimeGuard ? payloadGuardHash(payload, alphabet, '', seed, step, cipherMode) : 0;
+
+        let wrapper = "return(function(" +
+            shell.payload + "," + shell.alphabet + ",n," +
+            shell.key + "," + shell.step + "," + shell.mode + "," + shell.guard + ",...)";
+        wrapper += "local " + shell.packer + "=function(...)local z={...};z.n=select('#',...);return z end;";
+        wrapper += "local " + shell.decoder + "=(" + D + ");";
+        wrapper += "local " + shell.executor + "=(" + O + ");";
+
+        if (options.runtimeGuard) {
+            wrapper += "local h=2166136261;";
+            wrapper += "for i=1,#" + shell.payload + " do h=(h+string.byte(" + shell.payload + ",i)*i+17)%4294967296 end;";
+            wrapper += "for j=1,#" + shell.alphabet + " do h=(h+string.byte(" + shell.alphabet + ",j)*(j+2)+31)%4294967296 end;";
+            wrapper += "h=(h+(" + shell.key + "%256)*257+(" + shell.step + "%256)*65537+(" + shell.mode + "%256)*104729)%4294967296;";
+            wrapper += "if h~=" + shell.guard + " then error('')end;";
+        }
+
+        wrapper += "local P=" + shell.decoder + "(" +
+            shell.payload + "," + shell.alphabet + ",n," +
+            shell.key + "," + shell.step + "," + shell.mode + ");";
+
+        if (options.purgePayload === true) {
+            wrapper += shell.payload + "=nil;" + shell.alphabet + "=nil;n=nil;" +
+                shell.key + "=nil;" + shell.step + "=nil;" + shell.mode + "=nil;" +
+                shell.guard + "=nil;";
+        }
+
+        wrapper += "local v=" + shell.executor + "(P,P.r,nil,nil," + shell.packer + "(...));";
+        wrapper += "return v.v[1]end)(";
+        wrapper += luaQuote(payload) + "," + luaQuote(alphabet) + "," + packed.bytes.length + "," +
+            seed + "," + step + "," + cipherMode + "," + guard + ",...)";
+        return wrapper;
     }
 
-    const shell = options.compactRuntime === true
-        ? makeCompactShellNames()
-        : (options.polymorphicShell
-            ? (() => {
-                const random = makeShellNames();
-                return { payload: 'p', hi: 'h', lo: 'l', key: 'k', step: 's', mode: 'm', guard: 'g',
-                    decoder: random.decoder, executor: random.executor, runner: random.runner };
-            })()
-            : { payload: 'p', hi: 'h', lo: 'l', key: 'k', step: 's', mode: 'm', guard: 'g',
-                decoder: 'D', executor: 'O', runner: 'R' });
+    const shell = options.polymorphicShell
+        ? (() => {
+            const random = makeShellNames();
+            return { payload: 'p', hi: 'h', lo: 'l', key: 'k', step: 's', mode: 'm', guard: 'g',
+                decoder: random.decoder, executor: random.executor, runner: random.runner };
+        })()
+        : { payload: 'p', hi: 'h', lo: 'l', key: 'k', step: 's', mode: 'm', guard: 'g',
+            decoder: 'D', executor: 'O', runner: 'R' };
     const guard = options.runtimeGuard ? payloadGuardHash(payload, alphabet, '', seed, step, cipherMode) : 0;
     const guardField = options.runtimeGuard ? "," + shell.guard + "=" + guard : "";
     let R = options.runtimeGuard
@@ -797,7 +841,7 @@ function x71Loader(program, options = {}) {
         "," + shell.decoder + "=(" + boundD.slice(boundD.indexOf("=") + 1) + ")" +
         "," + shell.executor + "=(" + boundO.slice(boundO.indexOf("=") + 1) + ")" +
         "," + shell.runner + "=(" + boundR.slice(boundR.indexOf("=") + 1) + ")";
-    return "return({" + object + "}):" + shell.runner + "(...)"
+    return "return({" + object + "}):" + shell.runner + "(...)";
 }
 class X71CodeGenerator {
     generate(source, options = {}) {

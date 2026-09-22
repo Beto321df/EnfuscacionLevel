@@ -305,194 +305,319 @@ function lowerFunction(fn) {
     const { blocks: allBlocks, byStart } = buildBlocks(code);
     const blocks = reachableBlocks(allBlocks, byStart);
     const heights = analyzeHeights(code, blocks, byStart);
-    const { entries, next: firstTemp } = makeEntryRegisters(blocks, heights);
-    const reserved = new Set([...entries.values()].flat());
 
-    let nextReg = firstTemp;
-    const free = [];
-    const refs = new Map();
+    // Compact registerization: one transient register per virtual stack slot.
+    // Equal stack depth always maps to the same register, so CFG edges need
+    // no MOVE instructions and call windows are naturally contiguous.
+    let maxRegister = 0;
     const out = [];
     const blockPc = new Map();
     const patches = [];
 
-    const acquire = () => {
-        while (free.length) {
-            const reg = free.pop();
-            if (!reserved.has(reg)) return reg;
-        }
-        return nextReg++;
-    };
-    const retain = r => refs.set(r, (refs.get(r) || 0) + 1);
-    const release = r => {
-        const count = (refs.get(r) || 0) - 1;
-        if (count <= 0) { refs.delete(r); if (!reserved.has(r)) free.push(r); }
-        else refs.set(r, count);
-    };
-    const push = (stack, r) => { retain(r); stack.push(r); };
-    const pop = stack => { if (!stack.length) throw new Error('Z registerizer: stack underflow.'); const r = stack.pop(); release(r); return r; };
-    const emit = (op, a = 0, b = 0, c = 0, d = 0) => { out.push([op, a >>> 0, b >>> 0, c >>> 0, d >>> 0]); return out.length - 1; };
-    const reserveContiguous = count => { const base = nextReg; nextReg += count; return base; };
-    const pack = regs => {
-        if (!regs.length) return 0;
-        const base = reserveContiguous(regs.length);
-        for (let i = 0; i < regs.length; i += 1) if (regs[i] !== base + i) emit(REG_OPS.MOVE, base + i, regs[i]);
-        return base;
-    };
-    const transfer = (stack, targetStart) => {
-        const target = entries.get(targetStart) || [];
-        if (target.length !== stack.length) throw new Error(`Z registerizer: edge stack mismatch hacia ${targetStart}.`);
-        for (let i = 0; i < stack.length; i += 1) if (stack[i] !== target[i]) emit(REG_OPS.MOVE, target[i], stack[i]);
+    const emit = (op, a = 0, b = 0, c = 0, d = 0) => {
+        out.push([op, a >>> 0, b >>> 0, c >>> 0, d >>> 0]);
+        return out.length - 1;
     };
     const patch = (index, targetStart, field = 1) => patches.push({ index, targetStart, field });
-    const nextBlockStart = pc => pc < code.length ? pc + 1 : null;
+    const noteHeight = stack => {
+        if (stack.length > maxRegister) maxRegister = stack.length;
+    };
+    const makeStack = height => {
+        const stack = new Array(height);
+        for (let i = 0; i < height; i += 1) stack[i] = i;
+        noteHeight(stack);
+        return stack;
+    };
+    const push = (stack, reg) => {
+        stack.push(reg);
+        noteHeight(stack);
+    };
+    const pop = stack => {
+        if (!stack.length) throw new Error('Z registerizer: stack underflow.');
+        return stack.pop();
+    };
 
     for (const block of blocks) {
         blockPc.set(block.start, out.length + 1);
-        let stack = (entries.get(block.start) || []).slice();
-        stack.forEach(retain);
+        const stack = makeStack(heights.get(block.start) || 0);
 
         for (let pc = block.start; pc <= block.end; pc += 1) {
             const ins = code[pc - 1];
             const op = ins[0];
             const a = ins[1], b = ins[2], c = ins[3], d = ins[4];
+
             switch (op) {
-                case OPS.PUSH_CONST: { const dst = acquire(); push(stack, dst); emit(REG_OPS.LOAD_CONST, dst, a); break; }
-                case OPS.LOAD_LOCAL: { const dst = acquire(); push(stack, dst); emit(REG_OPS.LOAD_LOCAL, dst, a); break; }
-                case OPS.STORE_LOCAL: { const src = pop(stack); emit(REG_OPS.STORE_LOCAL, a, src); break; }
-                case OPS.LOAD_UPVALUE: { const dst = acquire(); push(stack, dst); emit(REG_OPS.LOAD_UPVALUE, dst, a); break; }
-                case OPS.STORE_UPVALUE: { const src = pop(stack); emit(REG_OPS.STORE_UPVALUE, a, src); break; }
-                case OPS.LOAD_GLOBAL: { const dst = acquire(); push(stack, dst); emit(REG_OPS.LOAD_GLOBAL, dst, a); break; }
-                case OPS.STORE_GLOBAL: { const src = pop(stack); emit(REG_OPS.STORE_GLOBAL, a, src); break; }
-                case OPS.GET_MEMBER: { const obj = pop(stack); const dst = acquire(); push(stack, dst); emit(REG_OPS.GET_MEMBER, dst, obj, a); break; }
-                case OPS.SET_MEMBER: { const value = pop(stack); const obj = pop(stack); emit(REG_OPS.SET_MEMBER, obj, a, value); break; }
-                case OPS.GET_INDEX: { const key = pop(stack); const obj = pop(stack); const dst = acquire(); push(stack, dst); emit(REG_OPS.GET_INDEX, dst, obj, key); break; }
-                case OPS.SET_INDEX: { const value = pop(stack); const key = pop(stack); const obj = pop(stack); emit(REG_OPS.SET_INDEX, obj, key, value); break; }
-                case OPS.BIN: { const right = pop(stack); const left = pop(stack); const dst = acquire(); push(stack, dst); emit(REG_OPS.BIN, dst, left, right, a); break; }
-                case OPS.UNARY: { const src = pop(stack); const dst = acquire(); push(stack, dst); emit(REG_OPS.UNARY, dst, src, a); break; }
-                case OPS.NEW_TABLE: { const dst = acquire(); push(stack, dst); emit(REG_OPS.NEW_TABLE, dst); break; }
-                case OPS.GET_VARARG: { const dst = acquire(); push(stack, dst); emit(REG_OPS.GET_VARARG, dst); break; }
-                case OPS.GET_VARARG_MULTI: { const dst = acquire(); push(stack, dst); emit(REG_OPS.GET_VARARG_MULTI, dst); break; }
-                case OPS.MAKE_FUNCTION: { const dst = acquire(); push(stack, dst); emit(REG_OPS.MAKE_FUNCTION, dst, a); break; }
+                case OPS.PUSH_CONST: {
+                    const dst = stack.length;
+                    emit(REG_OPS.LOAD_CONST, dst, a);
+                    push(stack, dst);
+                    break;
+                }
+                case OPS.LOAD_LOCAL: {
+                    const dst = stack.length;
+                    emit(REG_OPS.LOAD_LOCAL, dst, a);
+                    push(stack, dst);
+                    break;
+                }
+                case OPS.STORE_LOCAL: {
+                    const src = pop(stack);
+                    emit(REG_OPS.STORE_LOCAL, a, src);
+                    break;
+                }
+                case OPS.LOAD_UPVALUE: {
+                    const dst = stack.length;
+                    emit(REG_OPS.LOAD_UPVALUE, dst, a);
+                    push(stack, dst);
+                    break;
+                }
+                case OPS.STORE_UPVALUE: {
+                    const src = pop(stack);
+                    emit(REG_OPS.STORE_UPVALUE, a, src);
+                    break;
+                }
+                case OPS.LOAD_GLOBAL: {
+                    const dst = stack.length;
+                    emit(REG_OPS.LOAD_GLOBAL, dst, a);
+                    push(stack, dst);
+                    break;
+                }
+                case OPS.STORE_GLOBAL: {
+                    const src = pop(stack);
+                    emit(REG_OPS.STORE_GLOBAL, a, src);
+                    break;
+                }
+                case OPS.GET_MEMBER: {
+                    const obj = pop(stack);
+                    const dst = stack.length;
+                    emit(REG_OPS.GET_MEMBER, dst, obj, a);
+                    push(stack, dst);
+                    break;
+                }
+                case OPS.SET_MEMBER: {
+                    const value = pop(stack);
+                    const obj = pop(stack);
+                    emit(REG_OPS.SET_MEMBER, obj, a, value);
+                    break;
+                }
+                case OPS.GET_INDEX: {
+                    const key = pop(stack);
+                    const obj = pop(stack);
+                    const dst = stack.length;
+                    emit(REG_OPS.GET_INDEX, dst, obj, key);
+                    push(stack, dst);
+                    break;
+                }
+                case OPS.SET_INDEX: {
+                    const value = pop(stack);
+                    const key = pop(stack);
+                    const obj = pop(stack);
+                    emit(REG_OPS.SET_INDEX, obj, key, value);
+                    break;
+                }
+                case OPS.BIN: {
+                    const right = pop(stack);
+                    const left = pop(stack);
+                    const dst = stack.length;
+                    emit(REG_OPS.BIN, dst, left, right, a);
+                    push(stack, dst);
+                    break;
+                }
+                case OPS.UNARY: {
+                    const src = pop(stack);
+                    const dst = stack.length;
+                    emit(REG_OPS.UNARY, dst, src, a);
+                    push(stack, dst);
+                    break;
+                }
+                case OPS.NEW_TABLE: {
+                    const dst = stack.length;
+                    emit(REG_OPS.NEW_TABLE, dst);
+                    push(stack, dst);
+                    break;
+                }
+                case OPS.GET_VARARG: {
+                    const dst = stack.length;
+                    emit(REG_OPS.GET_VARARG, dst);
+                    push(stack, dst);
+                    break;
+                }
+                case OPS.GET_VARARG_MULTI: {
+                    const dst = stack.length;
+                    emit(REG_OPS.GET_VARARG_MULTI, dst);
+                    push(stack, dst);
+                    break;
+                }
+                case OPS.MAKE_FUNCTION: {
+                    const dst = stack.length;
+                    emit(REG_OPS.MAKE_FUNCTION, dst, a);
+                    push(stack, dst);
+                    break;
+                }
                 case OPS.CALL:
                 case OPS.CALL_MULTI: {
-                    const args = [];
-                    for (let i = 0; i < a; i += 1) args.unshift(pop(stack));
-                    const callee = pop(stack);
-                    const base = reserveContiguous(a + 1);
-                    if (callee !== base) emit(REG_OPS.MOVE, base, callee);
-                    for (let i = 0; i < args.length; i += 1) if (args[i] !== base + i + 1) emit(REG_OPS.MOVE, base + i + 1, args[i]);
-                    const dst = acquire(); push(stack, dst);
-                    emit(op === OPS.CALL ? REG_OPS.CALL : REG_OPS.CALL_MULTI, dst, base, a);
+                    const argc = a >>> 0;
+                    const base = stack.length - argc - 1;
+                    if (base < 0) throw new Error('Z registerizer: stack underflow.');
+                    emit(op === OPS.CALL ? REG_OPS.CALL : REG_OPS.CALL_MULTI, base, base, argc);
+                    stack.length = base + 1;
+                    noteHeight(stack);
                     break;
                 }
                 case OPS.CALL_METHOD:
                 case OPS.CALL_METHOD_MULTI: {
-                    const args = [];
-                    for (let i = 0; i < b; i += 1) args.unshift(pop(stack));
-                    const obj = pop(stack);
-                    const base = reserveContiguous(b + 1);
-                    if (obj !== base) emit(REG_OPS.MOVE, base, obj);
-                    for (let i = 0; i < args.length; i += 1) if (args[i] !== base + i + 1) emit(REG_OPS.MOVE, base + i + 1, args[i]);
-                    const dst = acquire(); push(stack, dst);
-                    emit(op === OPS.CALL_METHOD ? REG_OPS.CALL_METHOD : REG_OPS.CALL_METHOD_MULTI, dst, base, a, b);
+                    const argc = b >>> 0;
+                    const base = stack.length - argc - 1;
+                    if (base < 0) throw new Error('Z registerizer: stack underflow.');
+                    emit(op === OPS.CALL_METHOD ? REG_OPS.CALL_METHOD : REG_OPS.CALL_METHOD_MULTI, base, base, a, argc);
+                    stack.length = base + 1;
+                    noteHeight(stack);
                     break;
                 }
                 case OPS.CALL_EXPAND: {
-                    const tail = pop(stack); const args = [];
-                    for (let i = 0; i < a; i += 1) args.unshift(pop(stack));
-                    const callee = pop(stack);
-                    const base = reserveContiguous(a + 1);
-                    if (callee !== base) emit(REG_OPS.MOVE, base, callee);
-                    for (let i = 0; i < args.length; i += 1) if (args[i] !== base + i + 1) emit(REG_OPS.MOVE, base + i + 1, args[i]);
-                    const dst = acquire(); push(stack, dst);
-                    emit(REG_OPS.CALL_EXPAND, dst, base, a, tail);
+                    const fixedArgs = a >>> 0;
+                    const base = stack.length - fixedArgs - 2;
+                    if (base < 0) throw new Error('Z registerizer: stack underflow.');
+                    const tail = base + fixedArgs + 1;
+                    emit(REG_OPS.CALL_EXPAND, base, base, fixedArgs, tail);
+                    stack.length = base + 1;
+                    noteHeight(stack);
                     break;
                 }
                 case OPS.CALL_METHOD_EXPAND: {
-                    const tail = pop(stack); const args = [];
-                    for (let i = 0; i < b; i += 1) args.unshift(pop(stack));
-                    const obj = pop(stack);
-                    const base = reserveContiguous(b + 1);
-                    if (obj !== base) emit(REG_OPS.MOVE, base, obj);
-                    for (let i = 0; i < args.length; i += 1) if (args[i] !== base + i + 1) emit(REG_OPS.MOVE, base + i + 1, args[i]);
-                    if (base > 65535 || tail > 65535 || b > 65535) throw new Error('Z registerizer: method expand window too large.');
-                    const packed = ((tail & 0xFFFF) << 16) | (b & 0xFFFF);
-                    const dst = acquire(); push(stack, dst);
-                    emit(REG_OPS.CALL_METHOD_EXPAND, dst, base, a, packed >>> 0);
+                    const fixedArgs = b >>> 0;
+                    const base = stack.length - fixedArgs - 2;
+                    if (base < 0) throw new Error('Z registerizer: stack underflow.');
+                    const tail = base + fixedArgs + 1;
+                    if (tail > 65535 || fixedArgs > 65535) throw new Error('Z registerizer: method expand window too large.');
+                    const packed = ((tail & 0xFFFF) << 16) | (fixedArgs & 0xFFFF);
+                    emit(REG_OPS.CALL_METHOD_EXPAND, base, base, a, packed >>> 0);
+                    stack.length = base + 1;
+                    noteHeight(stack);
                     break;
                 }
-                case OPS.DUP: { const src = stack[stack.length - 1]; if (src === undefined) throw new Error('Z registerizer: DUP vacío.'); push(stack, src); break; }
-                case OPS.POP: pop(stack); break;
+                case OPS.DUP:
+                    if (!stack.length) throw new Error('Z registerizer: DUP vacío.');
+                    push(stack, stack[stack.length - 1]);
+                    break;
+                case OPS.POP:
+                    pop(stack);
+                    break;
                 case OPS.PACK_MULTI: {
-                    const vals = []; for (let i = 0; i < a; i += 1) vals.unshift(pop(stack));
-                    const base = pack(vals); const dst = acquire(); push(stack, dst); emit(REG_OPS.PACK_MULTI, dst, base, a); break;
+                    const count = a >>> 0;
+                    const base = stack.length - count;
+                    if (base < 0) throw new Error('Z registerizer: stack underflow.');
+                    emit(REG_OPS.PACK_MULTI, base, base, count);
+                    stack.length = base + 1;
+                    noteHeight(stack);
+                    break;
                 }
                 case OPS.UNPACK_MULTI: {
-                    const src = pop(stack); const count = a >>> 0; const base = reserveContiguous(count);
-                    emit(REG_OPS.UNPACK_MULTI, base, src, count);
-                    for (let i = 0; i < count; i += 1) push(stack, base + i);
+                    const src = pop(stack);
+                    const count = a >>> 0;
+                    emit(REG_OPS.UNPACK_MULTI, src, src, count);
+                    for (let i = 0; i < count; i += 1) push(stack, src + i);
                     break;
                 }
                 case OPS.SETLIST_MULTI: {
-                    const value = pop(stack); const obj = pop(stack);
-                    emit(REG_OPS.SETLIST_MULTI, obj, value, a); break;
-                }
-                case OPS.RETURN_VOID: emit(REG_OPS.RETURN_VOID); break;
-                case OPS.RETURN: { const src = pop(stack); emit(REG_OPS.RETURN, src); break; }
-                case OPS.RETURN_MULTI: { const vals = []; for (let i = 0; i < a; i += 1) vals.unshift(pop(stack)); const base = pack(vals); emit(REG_OPS.RETURN_MULTI, base, a); break; }
-                case OPS.RETURN_MIXED: {
-                    const tail = pop(stack); const prefix = [];
-                    for (let i = 0; i < a; i += 1) prefix.unshift(pop(stack));
-                    const base = pack(prefix);
-                    emit(REG_OPS.RETURN_MIXED, base, a, tail);
+                    const value = pop(stack);
+                    const obj = pop(stack);
+                    emit(REG_OPS.SETLIST_MULTI, obj, value, a);
                     break;
                 }
-                case OPS.JUMP: { transfer(stack, a); const idx = emit(REG_OPS.JUMP, 0); patch(idx, a); break; }
+                case OPS.RETURN_VOID:
+                    emit(REG_OPS.RETURN_VOID);
+                    break;
+                case OPS.RETURN: {
+                    const src = pop(stack);
+                    emit(REG_OPS.RETURN, src);
+                    break;
+                }
+                case OPS.RETURN_MULTI: {
+                    const count = a >>> 0;
+                    const base = stack.length - count;
+                    if (base < 0) throw new Error('Z registerizer: stack underflow.');
+                    emit(REG_OPS.RETURN_MULTI, base, count);
+                    break;
+                }
+                case OPS.RETURN_MIXED: {
+                    const tail = pop(stack);
+                    const count = a >>> 0;
+                    const base = stack.length - count;
+                    if (base < 0) throw new Error('Z registerizer: stack underflow.');
+                    emit(REG_OPS.RETURN_MIXED, base, count, tail);
+                    break;
+                }
+                case OPS.JUMP: {
+                    const idx = emit(REG_OPS.JUMP, 0);
+                    patch(idx, a);
+                    break;
+                }
                 case OPS.JUMP_IF_FALSE:
                 case OPS.JUMP_IF_TRUE: {
                     const cond = pop(stack);
-                    const target = a;
-                    transfer(stack, target);
                     const idx = emit(op === OPS.JUMP_IF_FALSE ? REG_OPS.JUMP_IF_FALSE : REG_OPS.JUMP_IF_TRUE, cond, 0);
-                    patch(idx, target, 2);
+                    patch(idx, a, 2);
                     break;
                 }
                 case OPS.FOR_NUM_PREP: {
-                    const step = pop(stack); const finish = pop(stack); const start = pop(stack);
+                    const step = pop(stack);
+                    const finish = pop(stack);
+                    const start = pop(stack);
                     emit(REG_OPS.FOR_NUM_PREP, a, start, finish, step);
-                    transfer(stack, d);
-                    const idx = emit(REG_OPS.FOR_NUM_CHECK, 0); patch(idx, d);
+                    const idx = emit(REG_OPS.FOR_NUM_CHECK, 0);
+                    patch(idx, d);
                     break;
                 }
                 case OPS.FOR_NUM_NEXT: {
-                    transfer(stack, d);
-                    const idx = emit(REG_OPS.FOR_NUM_NEXT, 0); patch(idx, d); break;
+                    const idx = emit(REG_OPS.FOR_NUM_NEXT, 0);
+                    patch(idx, d);
+                    break;
                 }
                 case OPS.ITER_PREP: {
                     const iterator = pop(stack);
-                    transfer(stack, d);
-                    const idx = emit(REG_OPS.ITER_PREP, iterator, a, b, 0); patch(idx, d, 4); break;
+                    const idx = emit(REG_OPS.ITER_PREP, iterator, a, b, 0);
+                    patch(idx, d, 4);
+                    break;
                 }
                 case OPS.ITER_NEXT: {
-                    transfer(stack, b);
-                    transfer(stack, d);
-                    const idx = emit(REG_OPS.ITER_NEXT, 0, 0); patch(idx, b, 1); patch(idx, d, 2); break;
+                    const idx = emit(REG_OPS.ITER_NEXT, 0, 0);
+                    patch(idx, b, 1);
+                    patch(idx, d, 2);
+                    break;
                 }
-                case OPS.BREAK: { transfer(stack, a); const idx = emit(REG_OPS.BREAK, 0); patch(idx, a); break; }
-                case OPS.NOP: emit(REG_OPS.NOP); break;
-                case OPS.FUSED_LOCAL_CONST_BIN_STORE: emit(REG_OPS.FUSED_LOCAL_CONST_BIN_STORE, a, b, c, d); break;
-                case OPS.FUSED_LOCAL_LOCAL_BIN_STORE: emit(REG_OPS.FUSED_LOCAL_LOCAL_BIN_STORE, a, b, c, d); break;
-                case OPS.FUSED_GLOBAL_CALL: { const dst = acquire(); push(stack, dst); emit(REG_OPS.FUSED_GLOBAL_CALL, dst, a, c); break; }
-                default: throw new Error(`Z registerizer: opcode ${op} no soportado en pc ${pc}.`);
+                case OPS.BREAK: {
+                    const idx = emit(REG_OPS.BREAK, 0);
+                    patch(idx, a);
+                    break;
+                }
+                case OPS.NOP:
+                    emit(REG_OPS.NOP);
+                    break;
+                case OPS.FUSED_LOCAL_CONST_BIN_STORE:
+                    emit(REG_OPS.FUSED_LOCAL_CONST_BIN_STORE, a, b, c, d);
+                    break;
+                case OPS.FUSED_LOCAL_LOCAL_BIN_STORE:
+                    emit(REG_OPS.FUSED_LOCAL_LOCAL_BIN_STORE, a, b, c, d);
+                    break;
+                case OPS.FUSED_GLOBAL_CALL: {
+                    const dst = stack.length;
+                    emit(REG_OPS.FUSED_GLOBAL_CALL, dst, a, c);
+                    push(stack, dst);
+                    break;
+                }
+                default:
+                    throw new Error(`Z registerizer: opcode ${op} no soportado en pc ${pc}.`);
             }
         }
 
         const last = code[block.end - 1];
-        const natural = nextBlockStart(block.end);
+        const natural = block.end < code.length ? block.end + 1 : null;
         if (natural && ![OPS.JUMP, OPS.BREAK, OPS.RETURN, OPS.RETURN_MULTI, OPS.RETURN_VOID, OPS.RETURN_MIXED, OPS.ITER_NEXT].includes(last[0])) {
-            transfer(stack, natural);
+            const expected = heights.get(natural);
+            if (expected !== undefined && stack.length !== expected) {
+                throw new Error(`Z registerizer: edge stack mismatch hacia ${natural}.`);
+            }
         }
-        for (const r of stack) release(r);
     }
 
     for (const item of patches) {
@@ -501,7 +626,7 @@ function lowerFunction(fn) {
         out[item.index][item.field] = target >>> 0;
     }
 
-    return { ...fn, backend: 'register', registerCount: nextReg, code: out };
+    return { ...fn, backend: 'register', registerCount: maxRegister, code: out };
 }
 
 function registerizeProgram(program) {

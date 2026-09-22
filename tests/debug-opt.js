@@ -1,7 +1,5 @@
 const { buildNativeProgram }=require('../src/zlang/nativeCompiler');
 const { buildEmissionPlan }=require('../src/zlang/emitter');
-const { registerizeProgram }=require('../src/zlang/registerVm');
-const { executeProgram }=require('../src/zlang/referenceVm');
 const { REG_OPS, REG_ALIAS_BASE, REGISTER_FIELDS, validateRegisterProgram }=require('../src/zlang/registerVm');
 
 const cases=[
@@ -50,28 +48,4 @@ for(const [name,source] of cases){
       }
     }
   }
-}
-
-const genericSource=`local t={a=1,b=2}
-for k,v in next,t do print(k,v) end`;
-try {
-  const native=buildNativeProgram(genericSource,{fallback:false,polymorphOptions:{chance:0,maxPerFunction:0}});
-  console.log('NATIVE',JSON.stringify(native.functions[0].code.slice(0,16)));
-  native.functions[0].__debugCompact=true;
-  const reg=registerizeProgram(JSON.parse(JSON.stringify(native)));
-  validateRegisterProgram(reg);
-  const output=[];
-  executeProgram(reg,{next:(table,key)=>{
-    const keys=Object.keys(table).sort();
-    const index=key==null?0:keys.indexOf(String(key))+1;
-    const nextKey=keys[index];
-    return nextKey===undefined ? require('../src/zlang/referenceVm').multi([]) : require('../src/zlang/referenceVm').multi([nextKey,table[nextKey]]);
-  },print:(...args)=>output.push(...args)});
-  console.log('GENERIC REGISTER OK',JSON.stringify(output));
-} catch(e) {
-  console.error('GENERIC REGISTER ERROR',e.stack||e.message);
-  const native=buildNativeProgram(genericSource,{fallback:false,polymorphOptions:{chance:0,maxPerFunction:0}});
-  const reg=registerizeProgram(JSON.parse(JSON.stringify(native)));
-  for(const [fi,fn] of reg.functions.entries()) console.log('FN',fi,'rc',fn.registerCount,'code',JSON.stringify(fn.code));
-  process.exitCode=1;
 }

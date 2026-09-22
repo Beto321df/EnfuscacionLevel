@@ -1,3 +1,4 @@
+const X72=require('../src/generator/x72Codegen');
 const fs=require('fs');
 const {buildNativeProgram}=require('../src/zlang/nativeCompiler');
 const {registerizeProgram}=require('../src/zlang/registerVm');

@@ -2,32 +2,55 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
+const login = require('./api/login');
 const obfuscate = require('./api/obfuscate');
 const scripts = require('./api/scripts');
 const getScript = require('./api/get-script');
 
-const PORT = Number(process.env.PORT || 10000);
+const PORT = Number(process.env.PORT) || 10000;
 const HOST = '0.0.0.0';
 const INDEX = path.join(__dirname, 'index.html');
-const DB_URL = 'https://loaderz1-default-rtdb.firebaseio.com';
+const PACKAGE = require('./package.json');
+const MAX_BODY_BYTES = 8 * 1024 * 1024;
 
-function cors(res) {
+function setCors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST,DELETE,PUT');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,OPTIONS,POST,PUT,PATCH,DELETE');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept, X-Requested-With');
+  res.setHeader('Access-Control-Max-Age', '86400');
 }
 
-function json(res, status, payload) {
+function sendJson(res, status, payload) {
+  if (res.writableEnded) return;
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
   res.end(JSON.stringify(payload));
+}
+
+function sendText(res, status, body, contentType = 'text/plain; charset=utf-8') {
+  if (res.writableEnded) return;
+  res.statusCode = status;
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Cache-Control', 'no-store');
+  res.end(String(body ?? ''));
 }
 
 async function readJsonBody(req) {
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
-  const raw = Buffer.concat(chunks).toString('utf8');
+  let total = 0;
 
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > MAX_BODY_BYTES) {
+      const error = new Error('Request body exceeds the 8 MB limit.');
+      error.statusCode = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+
+  const raw = Buffer.concat(chunks).toString('utf8');
   if (!raw.trim()) return {};
 
   try {
@@ -39,213 +62,151 @@ async function readJsonBody(req) {
   }
 }
 
-async function nativeLogin(req, res) {
-  if (req.method !== 'POST') {
-    return json(res, 405, { ok: false, msg: 'Método no permitido' });
-  }
-
-  let body;
-  try {
-    body = await readJsonBody(req);
-  } catch (error) {
-    return json(res, error.statusCode || 400, { ok: false, msg: error.message });
-  }
-
-  const { mode, user, pass, pin, deviceId } = body || {};
-
-  if (!user || !pass || !pin) {
-    return json(res, 400, { ok: false, msg: 'Todos los campos son obligatorios.' });
-  }
-
-  const cleanUser = String(user).replace(/[^a-zA-Z0-9_-]/g, '');
-  if (!cleanUser) {
-    return json(res, 400, { ok: false, msg: 'Usuario inválido.' });
-  }
-
-  const secret = process.env.FIREBASE_SECRET;
-  if (!secret) {
-    console.error('FIREBASE_SECRET is not configured.');
-    return json(res, 500, { ok: false, msg: 'El servidor no tiene configurado FIREBASE_SECRET.' });
-  }
-
-  const userUrl = DB_URL + '/users/' + encodeURIComponent(cleanUser) + '/auth.json?auth=' + encodeURIComponent(secret);
-
-  try {
-    if (mode === 'signup') {
-      if (deviceId) {
-        const devUrl = DB_URL + '/devices/' + encodeURIComponent(String(deviceId)) + '/accounts.json?auth=' + encodeURIComponent(secret);
-        const devRes = await fetch(devUrl);
-        if (!devRes.ok) {
-          return json(res, 502, { ok: false, msg: 'Firebase rechazó la consulta del dispositivo.' });
-        }
-        const devAccs = (await devRes.json()) || {};
-        if (Object.keys(devAccs).length >= 2 && !devAccs[cleanUser]) {
-          return json(res, 400, { ok: false, msg: 'Límite alcanzado: Máximo 2 cuentas por dispositivo.' });
-        }
-      }
-
-      const checkRes = await fetch(userUrl);
-      if (!checkRes.ok) {
-        return json(res, 502, { ok: false, msg: 'Firebase rechazó la consulta del usuario.' });
-      }
-
-      const existing = await checkRes.json();
-      if (existing && existing.pass) {
-        return json(res, 400, { ok: false, msg: 'El usuario ya existe.' });
-      }
-
-      const saveRes = await fetch(userUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          pass: String(pass),
-          pin: String(pin),
-          createdAt: Date.now()
-        })
-      });
-
-      if (!saveRes.ok) {
-        console.error('Firebase signup failed:', saveRes.status, await saveRes.text().catch(() => ''));
-        return json(res, 502, { ok: false, msg: 'Firebase rechazó el registro.' });
-      }
-
-      if (deviceId) {
-        const deviceAccountUrl =
-          DB_URL + '/devices/' + encodeURIComponent(String(deviceId)) +
-          '/accounts/' + encodeURIComponent(cleanUser) +
-          '.json?auth=' + encodeURIComponent(secret);
-
-        await fetch(deviceAccountUrl, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: 'true'
-        });
-      }
-
-      return json(res, 200, { ok: true, msg: 'Cuenta registrada correctamente.' });
-    }
-
-    if (mode === 'signin') {
-      const checkRes = await fetch(userUrl);
-
-      if (!checkRes.ok) {
-        console.error('Firebase login lookup failed:', checkRes.status);
-        return json(res, 502, { ok: false, msg: 'Firebase no pudo consultar la cuenta.' });
-      }
-
-      const userData = await checkRes.json();
-
-      if (!userData || !userData.pass) {
-        return json(res, 404, { ok: false, msg: 'Usuario no encontrado.' });
-      }
-
-      if (String(userData.pass).trim() !== String(pass).trim()) {
-        return json(res, 401, { ok: false, msg: 'Contraseña incorrecta.' });
-      }
-
-      if (String(userData.pin).trim() !== String(pin).trim()) {
-        return json(res, 401, { ok: false, msg: 'PIN incorrecto.' });
-      }
-
-      return json(res, 200, { ok: true, msg: 'Login exitoso.' });
-    }
-
-    return json(res, 400, { ok: false, msg: 'Modo inválido.' });
-  } catch (error) {
-    console.error('Login error:', error);
-    return json(res, 500, { ok: false, msg: 'Error de servidor.' });
-  }
-}
-
 function wrapHandlerResponse(res) {
   return {
     status(code) {
-      res.statusCode = code;
+      res.statusCode = Number(code) || 200;
       return this;
     },
     setHeader(name, value) {
       res.setHeader(name, value);
+      return this;
+    },
+    getHeader(name) {
+      return res.getHeader(name);
+    },
+    removeHeader(name) {
+      res.removeHeader(name);
+      return this;
     },
     json(value) {
+      if (res.writableEnded) return this;
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store');
       res.end(JSON.stringify(value));
+      return this;
     },
     send(value) {
+      if (res.writableEnded) return this;
       if (!res.getHeader('Content-Type')) {
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       }
+      res.setHeader('Cache-Control', 'no-store');
       res.end(value == null ? '' : String(value));
+      return this;
     },
     end(value) {
-      res.end(value);
+      if (!res.writableEnded) res.end(value);
+      return this;
     }
   };
 }
 
-async function callModule(handler, req, res, url) {
+async function callApi(handler, req, res, url) {
   req.query = Object.fromEntries(url.searchParams.entries());
 
-  if (req.method !== 'GET' && req.method !== 'HEAD') {
-    req.body = await readJsonBody(req);
-  } else {
+  if (req.method === 'GET' || req.method === 'HEAD') {
     req.body = {};
+  } else {
+    req.body = await readJsonBody(req);
   }
 
   await handler(req, wrapHandlerResponse(res));
 
   if (!res.writableEnded) {
-    json(res, 500, { ok: false, msg: 'API terminó sin enviar una respuesta.' });
+    sendJson(res, 500, {
+      ok: false,
+      msg: 'API handler finished without sending a response.',
+      route: url.pathname
+    });
+  }
+}
+
+async function serveIndex(req, res) {
+  try {
+    const stat = await fs.promises.stat(INDEX);
+    if (!stat.isFile()) throw new Error('index.html is not a file');
+
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    if (req.method === 'HEAD') return res.end();
+
+    fs.createReadStream(INDEX)
+      .on('error', error => {
+        console.error('index.html read error:', error);
+        if (!res.writableEnded) sendText(res, 500, 'Internal Server Error');
+      })
+      .pipe(res);
+  } catch (error) {
+    console.error('index.html serve error:', error);
+    sendText(res, 500, 'index.html could not be served.');
   }
 }
 
 async function dispatch(req, res) {
-  cors(res);
+  setCors(res);
 
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
     return res.end();
   }
 
-  const url = new URL(req.url, 'http://localhost');
+  const url = new URL(req.url || '/', 'http://127.0.0.1');
+  const pathname = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, '') : url.pathname;
 
-  if (url.pathname === '/health') {
-    return json(res, 200, {
+  if (pathname === '/health') {
+    return sendJson(res, 200, {
       ok: true,
       service: 'nyvex',
       runtime: 'node',
+      version: PACKAGE.version,
       port: PORT
     });
   }
 
-  if (url.pathname === '/') {
-    res.statusCode = 200;
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    return fs.createReadStream(INDEX).pipe(res);
+  if (pathname === '/api') {
+    return sendJson(res, 200, {
+      ok: true,
+      service: 'nyvex',
+      routes: ['/api/login', '/api/obfuscate', '/api/scripts', '/api/get-script']
+    });
   }
 
-  if (url.pathname === '/api/login') {
-    return nativeLogin(req, res);
+  if (pathname === '/') {
+    return serveIndex(req, res);
   }
 
   const handlers = {
+    '/api/login': login,
     '/api/obfuscate': obfuscate,
     '/api/scripts': scripts,
     '/api/get-script': getScript
   };
 
-  const handler = handlers[url.pathname];
+  const handler = handlers[pathname];
   if (!handler) {
-    return json(res, 404, { ok: false, msg: 'Ruta no encontrada.' });
+    if (pathname.startsWith('/api/')) {
+      return sendJson(res, 404, { ok: false, msg: 'API route not found.', route: pathname });
+    }
+    return sendText(res, 404, 'Not Found');
   }
 
   try {
-    return await callModule(handler, req, res, url);
+    return await callApi(handler, req, res, url);
   } catch (error) {
-    console.error('API request failure:', error);
+    console.error('API request failure:', pathname, error);
     if (!res.writableEnded) {
-      return json(res, error.statusCode || 500, {
+      const status = Number(error && error.statusCode) || 500;
+      return sendJson(res, status, {
         ok: false,
-        msg: error.statusCode === 400 ? error.message : 'Error interno del servidor.'
+        msg: status === 400 || status === 413
+          ? String(error.message || 'Invalid request.')
+          : 'Internal server error.',
+        route: pathname
       });
     }
   }
@@ -255,10 +216,13 @@ const server = http.createServer((req, res) => {
   dispatch(req, res).catch(error => {
     console.error('Unhandled request error:', error);
     if (!res.writableEnded) {
-      json(res, 500, { ok: false, msg: 'Error interno del servidor.' });
+      sendJson(res, 500, { ok: false, msg: 'Internal server error.' });
     }
   });
 });
+
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
 
 server.listen(PORT, HOST, () => {
   console.log('Nyvex listening on ' + HOST + ':' + PORT);

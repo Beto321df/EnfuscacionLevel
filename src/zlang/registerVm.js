@@ -262,7 +262,13 @@ function analyzeHeights(code, blocks, byStart) {
                     heights.set(target, height);
                     queue.push(target);
                 } else if (old !== height) {
-                    throw new Error(`Z registerizer: merge de stack incompatible en pc ${target} (${old} != ${height}); predecessor ${block.start}-${block.end}.`);
+                    const opName = op => Object.keys(OPS).find(key => OPS[key] === (code[op - 1]?.[0]));
+                    const around = pc => {
+                        const from = Math.max(1, pc - 2);
+                        const to = Math.min(code.length, pc + 2);
+                        return code.slice(from - 1, to).map((ins, idx) => `${from + idx}:${opName(from + idx)}:${ins.slice(1).join(',')}`).join('|');
+                    };
+                    throw new Error(`Z registerizer: merge de stack incompatible en pc ${target} (${old} != ${height}); predecessor ${block.start}-${block.end}; targetOps=${around(target)}; predOps=${around(block.end)}.`);
                 }
             }
         }

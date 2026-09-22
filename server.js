@@ -180,12 +180,12 @@ async function dispatch(req, res) {
     return serveIndex(req, res);
   }
 
-  if (pathname === '/favicon.svg') {
+  if (pathname === '/favicon.png') {
     try {
-      const faviconPath = path.join(__dirname, 'favicon.svg');
+      const faviconPath = path.join(__dirname, 'favicon.png');
       const data = await fs.promises.readFile(faviconPath);
       res.statusCode = 200;
-      res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+      res.setHeader('Content-Type', 'image/png');
       res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
       return res.end(data);
     } catch (error) {

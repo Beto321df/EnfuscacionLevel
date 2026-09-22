@@ -6,18 +6,30 @@ const { hardenProgram } = require('../zlang/x72Hardening');
 
 function hardeningPlan(name, attempt, sourceLines) {
     const max = String(name).toLowerCase() === 'maximum';
+    const compact = Number(sourceLines) > 450;
     const profiles = max
-        ? [
-            { stringChance: 0.46, numberChance: 0.24, opaqueMin: 12, distributedMin: 64, interval: 112, decoys: 3 },
-            { stringChance: 0.36, numberChance: 0.18, opaqueMin: 16, distributedMin: 96, interval: 144, decoys: 2 },
-            { stringChance: 0.28, numberChance: 0.12, opaqueMin: 24, distributedMin: 128, interval: 192, decoys: 1 },
-            { stringChance: 0.20, numberChance: 0.08, opaqueMin: 32, distributedMin: 192, interval: 256, decoys: 0 }
-        ]
-        : [
-            { stringChance: 0.34, numberChance: 0.16, opaqueMin: 16, distributedMin: 96, interval: 160, decoys: 2 },
-            { stringChance: 0.26, numberChance: 0.12, opaqueMin: 20, distributedMin: 128, interval: 192, decoys: 1 },
-            { stringChance: 0.18, numberChance: 0.08, opaqueMin: 28, distributedMin: 192, interval: 256, decoys: 0 }
-        ];
+        ? (compact
+            ? [
+                { stringChance: 0.12, numberChance: 0.04, opaqueMin: 32, distributedMin: 256, interval: 384, decoys: 0 },
+                { stringChance: 0.10, numberChance: 0.03, opaqueMin: 40, distributedMin: 320, interval: 512, decoys: 0 },
+                { stringChance: 0.08, numberChance: 0.02, opaqueMin: 48, distributedMin: 384, interval: 640, decoys: 0 }
+            ]
+            : [
+                { stringChance: 0.46, numberChance: 0.24, opaqueMin: 12, distributedMin: 64, interval: 112, decoys: 3 },
+                { stringChance: 0.36, numberChance: 0.18, opaqueMin: 16, distributedMin: 96, interval: 144, decoys: 2 },
+                { stringChance: 0.28, numberChance: 0.12, opaqueMin: 24, distributedMin: 128, interval: 192, decoys: 1 },
+                { stringChance: 0.20, numberChance: 0.08, opaqueMin: 32, distributedMin: 192, interval: 256, decoys: 0 }
+            ])
+        : (compact
+            ? [
+                { stringChance: 0.10, numberChance: 0.03, opaqueMin: 40, distributedMin: 320, interval: 512, decoys: 0 },
+                { stringChance: 0.08, numberChance: 0.02, opaqueMin: 48, distributedMin: 384, interval: 640, decoys: 0 }
+            ]
+            : [
+                { stringChance: 0.34, numberChance: 0.16, opaqueMin: 16, distributedMin: 96, interval: 160, decoys: 2 },
+                { stringChance: 0.26, numberChance: 0.12, opaqueMin: 20, distributedMin: 128, interval: 192, decoys: 1 },
+                { stringChance: 0.18, numberChance: 0.08, opaqueMin: 28, distributedMin: 192, interval: 256, decoys: 0 }
+            ]);
     return profiles[Math.min(attempt, profiles.length - 1)];
 }
 
@@ -84,7 +96,7 @@ class X72CodeGenerator {
             encodeLocalOperands: feature('encodeLocalOperands', true),
             encodeInstructionRoute: feature('encodeInstructionRoute', !denseTransport),
             encodeOperandFeedback: feature('encodeOperandFeedback', true),
-            encodeConstantRoute: feature('encodeConstantRoute', true),
+            encodeConstantRoute: feature('encodeConstantRoute', !denseTransport),
             encodeTargetTokens: feature('encodeTargetTokens', !denseTransport),
             polymorphicShell: feature('polymorphicShell', !denseTransport),
             polymorphicDispatch: feature('polymorphicDispatch', !denseTransport),

@@ -2,6 +2,7 @@ services:
   - type: web
     name: nyvex
     runtime: node
+    plan: free
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /health

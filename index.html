@@ -36,7 +36,7 @@
   <main>
     <section id="view-login">
       <div class="hero">
-        <div><div class="eyebrow">// LUAU + LUA1 OBFUSCATION</div><h1>Ship the script.<br>Keep the source.</h1><p class="lead">nyvex convierte tu Luau en un loader protegido usando el motor Z3: bytecode propio, VM, payload Unicode visual y protección server-side.</p><div class="hero-actions"><button class="btn btn-primary" id="hero-login"><i class="fa-solid fa-arrow-right"></i> Enter dashboard</button><a class="btn btn-secondary" href="https://github.com/EasxB/EnfuscacionLevel" target="_blank" rel="noopener"><i class="fa-brands fa-github"></i> GitHub</a></div><div class="stats"><div class="stat"><strong>Z3</strong><span>engine</span></div><div class="stat"><strong>40</strong><span>visual glyphs</span></div><div class="stat"><strong>12</strong><span>chars / line</span></div><div class="stat"><strong>VM</strong><span>runtime</span></div></div></div>
+        <div><div class="eyebrow">// LUAU + LUA1 OBFUSCATION</div><h1>Ship the script.<br>Keep the source.</h1><p class="lead">nyvex convierte tu Luau en un loader protegido usando el motor Z3: bytecode propio, VM, payload Unicode visual y protección server-side.</p><div class="hero-actions"><button class="btn btn-primary" id="hero-login"><i class="fa-solid fa-arrow-right"></i> Enter dashboard</button><a class="btn btn-secondary" href="https://github.com/Beto321df/EnfuscacionLevel" target="_blank" rel="noopener"><i class="fa-brands fa-github"></i> GitHub</a></div><div class="stats"><div class="stat"><strong>Z3</strong><span>engine</span></div><div class="stat"><strong>40</strong><span>visual glyphs</span></div><div class="stat"><strong>12</strong><span>chars / line</span></div><div class="stat"><strong>VM</strong><span>runtime</span></div></div></div>
         <div class="preview-stack"><div class="code-card"><div class="code-head"><span>$ nyvex source.lua</span><span class="badge">INPUT</span></div><div class="code"><span class="k">local function</span> <span class="f">grantReward</span>(player, amount)
   <span class="k">local</span> stats = player:FindFirstChild(<span class="s">"leaderstats"</span>)
   <span class="k">if not</span> stats <span class="k">then return end</span>
@@ -58,7 +58,7 @@
 <script>
 (()=>{
   const $=id=>document.getElementById(id); const MAX_LINES=5000, MAX_SCRIPTS=10;
-  const APP_ORIGIN='https://nyvex.onrender.com';
+  const APP_ORIGIN=(location.origin&&location.origin!=='null')?location.origin:'https://nyvex.onrender.com';
   const API_BASE=APP_ORIGIN.replace(/\/$/,'');
   const OBFUSCATE_URL=`${API_BASE}/api/obfuscate`, SCRIPT_API_URL=`${API_BASE}/api/scripts`, LOAD_URL=id=>`${API_BASE}/api/get-script?id=${encodeURIComponent(id)}`;
   const firebaseConfig={apiKey:'AIzaSyD7tMMxK7f6X7c2uH2zXhWc7g2n8k1p3Q9',authDomain:'loaderz1.firebaseapp.com',databaseURL:'https://loaderz1-default-rtdb.firebaseio.com',projectId:'loaderz1',storageBucket:'loaderz1.firebasestorage.app',messagingSenderId:'421601823975',appId:'1:421601823975:web:9f0d4f22d2d2f2e1e2f3a4b'};
@@ -67,8 +67,8 @@
   function escapeHtml(s){return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','\"':'&quot;'}[c]));}
   async function parseJsonResponse(res,label){
     const text=await res.text();
-    if(!text.trim()) throw new Error(`${label} returned an empty response (HTTP ${res.status}).`);
-    try{return JSON.parse(text)}catch(e){throw new Error(`${label} returned invalid JSON (HTTP ${res.status}).`)}
+    if(!text.trim()) throw new Error(`${label} returned an empty response (HTTP ${res.status}) from ${res.url||'the Render API'}. The deployed service is not returning the Node JSON handler.`);
+    try{return JSON.parse(text)}catch(e){throw new Error(`${label} returned invalid JSON (HTTP ${res.status}) from ${res.url||'the Render API'}.`)}
   }
   function clearAlert(id){$(id).innerHTML='';} function alertBox(id,msg,type='err'){$(id).innerHTML=`<div class="alert ${type}">${escapeHtml(msg)}</div>`}
   function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(window.__ztoast);window.__ztoast=setTimeout(()=>t.classList.remove('show'),2400)}

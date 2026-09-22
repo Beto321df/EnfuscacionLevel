@@ -58,7 +58,7 @@
 <script>
 (()=>{
   const $=id=>document.getElementById(id); const MAX_LINES=5000, MAX_SCRIPTS=10;
-  const APP_ORIGIN='https://nyvex.onrender.com';
+  const APP_ORIGIN='https://nyvex-api.onrender.com';
   const API_BASE=APP_ORIGIN.replace(/\/$/,'');
   const OBFUSCATE_URL=`${API_BASE}/api/obfuscate`, SCRIPT_API_URL=`${API_BASE}/api/scripts`, LOAD_URL=id=>`${API_BASE}/api/get-script?id=${encodeURIComponent(id)}`;
   const firebaseConfig={apiKey:'AIzaSyD7tMMxK7f6X7c2uH2zXhWc7g2n8k1p3Q9',authDomain:'loaderz1.firebaseapp.com',databaseURL:'https://loaderz1-default-rtdb.firebaseio.com',projectId:'loaderz1',storageBucket:'loaderz1.firebasestorage.app',messagingSenderId:'421601823975',appId:'1:421601823975:web:9f0d4f22d2d2f2e1e2f3a4b'};

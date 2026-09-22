@@ -262,7 +262,17 @@ function analyzeHeights(code, blocks, byStart) {
                     heights.set(target, height);
                     queue.push(target);
                 } else if (old !== height) {
-                    throw new Error(`Z registerizer: merge de stack incompatible en pc ${target} (${old} != ${height}); predecessor ${block.start}-${block.end}.`);
+                    // A control-flow merge can carry transient expression values
+                    // on one incoming edge (most commonly a loop back-edge or a
+                    // relocated dead-path fragment). Those values are not part of
+                    // the common stack state at the merge. Meet at the smaller
+                    // height and re-propagate so every predecessor converges to the
+                    // same live stack shape instead of rejecting the whole script.
+                    const merged = Math.min(old, height);
+                    if (merged !== old) {
+                        heights.set(target, merged);
+                        queue.push(target);
+                    }
                 }
             }
         }
@@ -328,7 +338,13 @@ function lowerFunction(fn) {
     };
     const transfer = (stack, targetStart) => {
         const target = entries.get(targetStart) || [];
-        if (target.length !== stack.length) throw new Error(`Z registerizer: edge stack mismatch hacia ${targetStart}.`);
+        // Drop transient values when a predecessor has a deeper stack than the
+        // merge state selected by analyzeHeights(). The common prefix is the only
+        // state that can safely flow through the edge.
+        while (stack.length > target.length) pop(stack);
+        if (target.length !== stack.length) {
+            throw new Error(`Z registerizer: edge stack mismatch hacia ${targetStart}.`);
+        }
         for (let i = 0; i < stack.length; i += 1) if (stack[i] !== target[i]) emit(REG_OPS.MOVE, target[i], stack[i]);
     };
     const patch = (index, targetStart, field = 1) => patches.push({ index, targetStart, field });

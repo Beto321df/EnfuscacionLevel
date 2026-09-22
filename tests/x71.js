@@ -65,9 +65,9 @@ for(let i=0;i<4;i+=1){
     assert.strictEqual(typeof out,'string');
     assert.strictEqual(out.includes('\n'),false,'X7.1 debe ser una sola línea');
     assert(out.startsWith('return ({p='),'X7.1 debe usar la carcasa compacta sin dependencias externas');
-    assert(out.includes('D=function'),'X7.1 debe incluir decoder propio');
-    assert(out.includes('O=function'),'X7.1 debe incluir VM propia');
-    assert(out.includes('R=function'),'X7.1 debe incluir runner propio');
+    assert(out.includes(',D=(function'),'X7.1 debe incluir decoder propio');
+    assert(out.includes(',O=(function'),'X7.1 debe incluir VM propia');
+    assert(out.includes(',R=(function'),'X7.1 debe incluir runner propio');
     assert(!out.includes('table.pack'),'X7.1 no debe depender de table.pack');
     assert(!out.includes('table.unpack'),'X7.1 no debe depender de table.unpack');
     assert(out.includes('setmetatable('),'X7.1 ahora usa lazy constants mediante metatable');

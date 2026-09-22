@@ -396,6 +396,7 @@ function buildEmissionPlan(program, options = {}) {
 
     if (requestedBackend === 'register') {
         let registerReady = true;
+        const stackFallbackProgram = cloneProgram(out);
         try {
             const lowered = registerizeProgram(out);
             out.backend = lowered.backend;
@@ -418,8 +419,9 @@ function buildEmissionPlan(program, options = {}) {
             // returning HTTP 422 to the user.
             registerReady = false;
             out.backend = 'stack';
+            out.functions = stackFallbackProgram.functions;
             out.metadata = {
-                ...(out.metadata || {}),
+                ...(stackFallbackProgram.metadata || {}),
                 registerFallback: true,
                 registerFallbackReason: String(error && error.message || error)
             };

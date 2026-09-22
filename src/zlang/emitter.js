@@ -412,18 +412,22 @@ function buildEmissionPlan(program, options = {}) {
             // Only after semantic verification, hide branch destinations as per-function tokens.
             encodeRegisterControlTargets(out, options.controlTargets || {});
         } catch (error) {
+            const message = String(error && error.message || error);
+            const recoverableRegisterConflict =
+                /merge de stack incompatible|stack underflow en pc|registerizer: stack underflow/i.test(message);
+            if (!recoverableRegisterConflict) throw error;
+
             // Registerization is an optimization/backend choice, not a reason to
             // reject valid source. Some complex multi-result CFGs can still expose
-            // a stack-height conflict in the register backend. Keep the original
-            // verified stack IR and continue through the normal encoder instead of
-            // returning HTTP 422 to the user.
+            // a stack-height conflict in the register backend. Restore the clean
+            // pre-register IR and continue through the normal stack encoder.
             registerReady = false;
             out.backend = 'stack';
             out.functions = stackFallbackProgram.functions;
             out.metadata = {
                 ...(stackFallbackProgram.metadata || {}),
                 registerFallback: true,
-                registerFallbackReason: String(error && error.message || error)
+                registerFallbackReason: message
             };
         }
         if (!registerReady) {

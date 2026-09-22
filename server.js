@@ -180,6 +180,20 @@ async function dispatch(req, res) {
     return serveIndex(req, res);
   }
 
+  if (pathname === '/favicon.svg') {
+    try {
+      const faviconPath = path.join(__dirname, 'favicon.svg');
+      const data = await fs.promises.readFile(faviconPath);
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
+      return res.end(data);
+    } catch (error) {
+      console.error('favicon serve error:', error);
+      return sendText(res, 404, 'Favicon not found.');
+    }
+  }
+
   const handlers = {
     '/api/login': login,
     '/api/obfuscate': obfuscate,

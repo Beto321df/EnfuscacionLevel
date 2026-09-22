@@ -68,17 +68,26 @@ class X72CodeGenerator {
             isa: options.isa || preset.isa
         });
 
+        const instructionCount = program.functions.reduce((n, fn) => n + (fn.code?.length || 0), 0);
+        // Keep the strongest transport layers on small payloads, but avoid
+        // redundant per-instruction routing tables once the VM is already large.
+        // The code plane remains fully protected; only metadata duplication is
+        // reduced for density.
+        const denseTransport = instructionCount > 1500;
+        const transport = options.transport || {};
+        const feature = (name, fallback) => transport[name] === undefined ? fallback : transport[name];
+
         return X71CodeGenerator.x71Loader(program, {
             runtimeGuard: true,
             preferNativeGlobals: true,
             purgePayload: true,
-            encodeLocalOperands: true,
-            encodeInstructionRoute: true,
-            encodeOperandFeedback: true,
-            encodeConstantRoute: true,
-            encodeTargetTokens: true,
-            polymorphicShell: true,
-            polymorphicDispatch: true,
+            encodeLocalOperands: feature('encodeLocalOperands', true),
+            encodeInstructionRoute: feature('encodeInstructionRoute', !denseTransport),
+            encodeOperandFeedback: feature('encodeOperandFeedback', true),
+            encodeConstantRoute: feature('encodeConstantRoute', true),
+            encodeTargetTokens: feature('encodeTargetTokens', !denseTransport),
+            polymorphicShell: feature('polymorphicShell', !denseTransport),
+            polymorphicDispatch: feature('polymorphicDispatch', !denseTransport),
             rollingPayload: true,
             lazyConstants: true
         });

@@ -408,7 +408,7 @@ function buildEmissionPlan(program, options = {}) {
         out.metadata = { ...(out.metadata || {}), analysisBeforePacking: analyzeProgram(out) };
         // Only after semantic verification, hide branch destinations as per-function tokens.
         encodeRegisterControlTargets(out, options.controlTargets || {});
-    }    } else {
+    } else {
         out.backend = 'stack';
         out.metadata = { ...(out.metadata || {}), analysisBeforePacking: analyzeProgram(out) };
     }

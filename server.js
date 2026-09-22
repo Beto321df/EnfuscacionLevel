@@ -10,6 +10,12 @@ const getScript = require('./api/get-script');
 const PORT = Number(process.env.PORT || 3000);
 const INDEX = path.join(__dirname, 'index.html');
 
+function sendHealth(res) {
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.end(JSON.stringify({ ok: true, service: 'nyvex', runtime: 'node' }));
+}
+
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST,DELETE,PUT');
@@ -67,6 +73,10 @@ async function run(req, res) {
   };
 
   const handler = routes[url.pathname];
+  if (url.pathname === '/health') {
+    return sendHealth(res);
+  }
+
   if (!handler) {
     res.statusCode = 404;
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -76,7 +86,13 @@ async function run(req, res) {
   try {
     req.query = Object.fromEntries(url.searchParams.entries());
     req.body = await body(req);
-    return await handler(req, wrapResponse(res));
+    await handler(req, wrapResponse(res));
+    if (!res.writableEnded) {
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      return res.end(JSON.stringify({ ok: false, msg: 'API terminó sin enviar una respuesta.' }));
+    }
+    return;
   } catch (error) {
     console.error(error);
     if (!res.writableEnded) {

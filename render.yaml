@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: nyvex-api
+    name: nyvex
     runtime: node
     plan: free
     buildCommand: npm install

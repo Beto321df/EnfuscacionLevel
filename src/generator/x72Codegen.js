@@ -4,8 +4,6 @@ const { buildEmissionPlan } = require('../zlang/emitter');
 const { resolvePreset } = require('../zlang/presets');
 const { hardenProgram } = require('../zlang/x72Hardening');
 
-const MAX_OUTPUT = 1024 * 1024;
-
 function hardeningPlan(name, attempt, sourceLines) {
     const max = String(name).toLowerCase() === 'maximum';
     const profiles = max

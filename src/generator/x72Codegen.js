@@ -4,7 +4,7 @@ const { buildEmissionPlan } = require('../zlang/emitter');
 const { resolvePreset } = require('../zlang/presets');
 const { hardenProgram } = require('../zlang/x72Hardening');
 
-const MAX_OUTPUT = 1024 * 1024;
+const MAX_OUTPUT = 100 * 1024;
 
 function hardeningPlan(name, attempt, sourceLines) {
     const max = String(name).toLowerCase() === 'maximum';
@@ -49,8 +49,12 @@ class X72CodeGenerator {
 
         for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
             try {
+                const largeSource = lineCount > 250;
+                const polymorphOptions = largeSource
+                    ? { ...(preset.polymorph || {}), chance: 0, maxPerFunction: 0 }
+                    : preset.polymorph;
                 const native = buildNativeProgram(source, {
-                    polymorphOptions: preset.polymorph
+                    polymorphOptions
                 });
 
                 native.metadata = {
@@ -97,7 +101,7 @@ class X72CodeGenerator {
                     encodeInstructionRoute: lineCount <= 250,
                     encodeOperandFeedback: true,
                     encodeConstantRoute: true,
-                    encodeTargetTokens: true,
+                    encodeTargetTokens: !(lineCount > 500 && attempt >= 2),
                     compactRoutes: true,
                     variableOperands: true,
                     polymorphicShell: true,

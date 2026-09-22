@@ -64,12 +64,12 @@ button{cursor:pointer}
   backdrop-filter:blur(20px) saturate(140%);
 }
 .nav::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent,rgba(250,204,21,.28),transparent);opacity:.7}
-.brand{display:flex;align-items:center;gap:10px;text-decoration:none;min-width:0}
-.brand-mark{width:30px;height:30px;flex:0 0 30px;border-radius:8px;overflow:hidden;box-shadow:0 0 0 1px rgba(255,255,255,.08),0 6px 24px rgba(250,204,21,.12);transition:transform .25s ease,box-shadow .25s ease}
+.brand{display:flex;align-items:center;gap:7px;text-decoration:none;min-width:0}
+.brand-mark{width:27px;height:27px;flex:0 0 27px;border-radius:8px;overflow:hidden;box-shadow:0 0 0 1px rgba(255,255,255,.08),0 6px 24px rgba(250,204,21,.12);transition:transform .25s ease,box-shadow .25s ease}
 .brand-mark img{display:block;width:100%;height:100%;object-fit:cover}
 .brand:hover .brand-mark{transform:translateY(-1px) rotate(-2deg);box-shadow:0 0 0 1px rgba(250,204,21,.25),0 8px 30px rgba(250,204,21,.2)}
-.brand-name{font-size:.9rem;font-weight:850;letter-spacing:-.04em;white-space:nowrap}
-.nav-right{display:flex;align-items:center;gap:7px}
+.brand-name{font-size:.76rem;font-weight:800;letter-spacing:-.045em;white-space:nowrap}
+.nav-right{display:flex;align-items:center;gap:4px}
 .nav-link,.nav-btn{
   border:1px solid transparent;border-radius:10px;
   background:transparent;color:var(--muted);
@@ -77,7 +77,7 @@ button{cursor:pointer}
   padding:9px 11px;transition:.18s ease;
 }
 .nav-link:hover{color:#fff;background:rgba(255,255,255,.045);border-color:var(--line)}
-.social-icon{width:38px;height:38px;padding:0;display:inline-grid;place-items:center;font-size:.98rem}
+.social-icon{width:32px;height:32px;padding:0;display:inline-grid;place-items:center;font-size:.9rem}
 .social-icon i{line-height:1}
 .social-icon:hover{color:var(--yellow);background:rgba(250,204,21,.06);border-color:rgba(250,204,21,.16)}
 .nav-btn{color:#18181b;background:var(--yellow);border-color:var(--yellow);box-shadow:0 5px 22px rgba(250,204,21,.12)}
@@ -244,7 +244,7 @@ footer span{color:var(--yellow);opacity:.7}
   .nav{padding:12px}
   .nav-link span{display:none}
   .nav-link{padding:9px}
-  .brand-name{font-size:.84rem}
+  .brand-name{font-size:.7rem}
   main{padding-top:32px}
   h1{font-size:clamp(2.7rem,14vw,4rem)}
   .hero-actions,.editor-actions{flex-direction:column}

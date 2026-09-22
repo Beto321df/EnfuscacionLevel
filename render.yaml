@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: nyvex
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /

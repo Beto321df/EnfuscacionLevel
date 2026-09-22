@@ -199,6 +199,17 @@ assert.notStrictEqual(a,b,'X7.2 debe diversificar cada build');
 assert(a.length>12000,'X7.2 debe conservar sus capas de runtime');
 assert(a.length<1024*1024,'X7.2 debe respetar el límite de 1 MB');
 
+const mediumSource=Array.from({length:500},(_,i)=>[
+    `local cfg${i}={id=${i},enabled=${i%2===0},name="item-${i}"},`,
+    `cfg${i}.value=(${i}*3+${i%11})%101,`,
+    `if cfg${i}.enabled then cfg${i}.tag=cfg${i}.name else cfg${i}.tag="off" end`
+].join('\\n')).join('\\n');
+const mediumOut=new X72().generate(mediumSource,{preset:'maximum'});
+assert(mediumOut.length<=100*1024,'X7.2 500-line output should stay at or below 100KB');
+assert(mediumOut.startsWith('return ({p='),'X7.2 medium benchmark debe generar');
+assert.strictEqual(mediumOut.includes('\\n'),false,'X7.2 medium benchmark debe seguir en una línea');
+luaparse.parse(mediumOut,{wait:false,comments:false,luaVersion:'5.1'});
+
 const longSource=Array.from({length:4999},(_,i)=>`local v${i}=${i}`).join('\\n')+'\\nprint(v4998)';
 const longOut=new X72().generate(longSource,{preset:'strong'});
 assert(longOut.startsWith('return ({p='),'X7.2 debe aceptar 5000 líneas');

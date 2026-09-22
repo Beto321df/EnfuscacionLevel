@@ -42,7 +42,7 @@ module.exports = async (req, res) => {
         }
         const obfuscatedCode=mode==='x7-register' ? generated : wrapVisual(generated);
         if(typeof obfuscatedCode!=='string'||!obfuscatedCode.trim())throw new Error('Z no generó código protegido.');
-        if(obfuscatedCode.length>1024*1024)throw new Error(`X7.2 generó una salida de ${obfuscatedCode.length} caracteres; límite 1 MB.`);
+        if(obfuscatedCode.length>100*1024)throw new Error(`X7.2 generó una salida de ${obfuscatedCode.length} caracteres; el límite práctico es 100 KB.`);
         return res.status(200).json({success:true,engine:'Z-Lang 3',mode,format:mode==='x7-register' ? 'X7.2 hardened layered register VM' : 'Z3 visual compatibility loader',payloadAlphabet:'mixed-cjk-digit-symbol-random-alias',payloadAlphabetValue:ALPHABET,alphabetBase:BASE,visualLineWidth:19,visualSeparator:'/ ',sourceReconstruction:mode==='zlang3-visual-compat',strengthPreset:preset.name,directBytecodeExecution,singleLine:true,code:obfuscatedCode,obfuscatedCode});
     } catch(error) { const message=error instanceof Error?error.message:String(error); console.error('Z3 obfuscation failure:',error); return res.status(500).json({success:false,error:message||'Error interno de obfuscación.'}); }
 };

@@ -395,19 +395,38 @@ function buildEmissionPlan(program, options = {}) {
     shuffleConstants(out);
 
     if (requestedBackend === 'register') {
-        const lowered = registerizeProgram(out);
-        out.backend = lowered.backend;
-        out.functions = lowered.functions;
-        out.metadata = lowered.metadata;
-        fuseRegisterComparisons(out);
-        permuteRegisterFile(out, options.registers || {});
-        diversifyRegisterIsa(out, options.isa || {});
-        validateRegisterProgram(out);
-        verifyProgram(out, { backend: 'register' });
-        // Capture semantic analysis before physical branch-target encoding.
-        out.metadata = { ...(out.metadata || {}), analysisBeforePacking: analyzeProgram(out) };
-        // Only after semantic verification, hide branch destinations as per-function tokens.
-        encodeRegisterControlTargets(out, options.controlTargets || {});
+        let registerReady = true;
+        try {
+            const lowered = registerizeProgram(out);
+            out.backend = lowered.backend;
+            out.functions = lowered.functions;
+            out.metadata = lowered.metadata;
+            fuseRegisterComparisons(out);
+            permuteRegisterFile(out, options.registers || {});
+            diversifyRegisterIsa(out, options.isa || {});
+            validateRegisterProgram(out);
+            verifyProgram(out, { backend: 'register' });
+            // Capture semantic analysis before physical branch-target encoding.
+            out.metadata = { ...(out.metadata || {}), analysisBeforePacking: analyzeProgram(out) };
+            // Only after semantic verification, hide branch destinations as per-function tokens.
+            encodeRegisterControlTargets(out, options.controlTargets || {});
+        } catch (error) {
+            // Registerization is an optimization/backend choice, not a reason to
+            // reject valid source. Some complex multi-result CFGs can still expose
+            // a stack-height conflict in the register backend. Keep the original
+            // verified stack IR and continue through the normal encoder instead of
+            // returning HTTP 422 to the user.
+            registerReady = false;
+            out.backend = 'stack';
+            out.metadata = {
+                ...(out.metadata || {}),
+                registerFallback: true,
+                registerFallbackReason: String(error && error.message || error)
+            };
+        }
+        if (!registerReady) {
+            out.metadata = { ...(out.metadata || {}), analysisBeforePacking: analyzeProgram(out) };
+        }
     } else {
         out.backend = 'stack';
         out.metadata = { ...(out.metadata || {}), analysisBeforePacking: analyzeProgram(out) };

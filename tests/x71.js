@@ -21,8 +21,12 @@ assert(implementation.includes('ms.four(); // metadata mask step'),'X7.1 validat
 assert(implementation.includes('ms.two();  // vararg flag'),'X7.1 validator debe leer vararg como u16');
 assert(implementation.includes('local vararg=mU()==1;'),'X7.1 loader debe leer vararg como u16');
 assert(
-    implementation.includes('local opcodes={};for j=1,count do opcodes[j]=iu()end;fn.q={};for q=1,56 do fn.q[q]=iu()end;'),
-    'X7.1 debe leer el stream de opcodes antes del mapa físico->semántico'
+    implementation.includes('local opcodes={};for j=1,count do opcodes[j]=iu()end;'),
+    'X7.1 debe leer el stream de opcodes'
+);
+assert(
+    implementation.includes('fn.q={};for q=1,56 do fn.q[q]=iu()end;'),
+    'X7.1 debe reconstruir el mapa físico->semántico de forma compacta'
 );
 
 const source=`local seed=17

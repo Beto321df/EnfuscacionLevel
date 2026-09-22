@@ -22,7 +22,6 @@ for(const optimize of [false,true]){
 
 const hard=require('../src/zlang/x72Hardening');
 const {validateIR}=require('../src/zlang/ir');
-const {buildNativeProgram}=require('../src/zlang/nativeCompiler');
 const native2=buildNativeProgram(source,{fallback:false,optimize:true,polymorphic:false});
 const stages=[
  ['base',()=>{}],

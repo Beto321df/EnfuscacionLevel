@@ -710,7 +710,7 @@ function fuseRegisterComparisons(program) {
                 const branch = code[moveEnd + 1];
                 const bn = Object.keys(REG_OPS).find(k => REG_OPS[k] === branch?.[0]);
                 const bb = REG_ALIAS_BASE[bn] || bn;
-                if ((bb === 'JUMP_IF_FALSE' || bb === 'JUMP_IF_TRUE') && branch[1] === valueReg) {
+                if ((bb === 'JUMP_IF_FALSE' || bb === 'JUMP_IF_TRUE') && branch[1] === valueReg && Number.isInteger(branch[2]) && branch[2] >= 1 && branch[2] <= code.length) {
                     const newPc = next.length + 1;
                     for (let oldPc = i + 1; oldPc <= moveEnd + 1; oldPc += 1) oldToNew.set(oldPc, newPc);
                     next.push([

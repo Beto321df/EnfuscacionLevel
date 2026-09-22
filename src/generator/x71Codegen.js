@@ -748,7 +748,6 @@ function x71Loader(program, options = {}) {
     if (options.compactRuntime === true) {
         D = compactRuntimeSource(D);
         O = compactRuntimeSource(O);
-        R = compactRuntimeSource(R);
     }
 
     const shell = options.compactRuntime === true
@@ -768,6 +767,10 @@ function x71Loader(program, options = {}) {
         : "R=function(t,...)local PACK=function(...)local z={...};z.n=select('#',...);return z end;local P=t:D();local v=t:O(P,P.r,nil,nil,PACK(...));return v.v[1]end";
     if (options.purgePayload === true) {
         R = R.replace("local P=t:D();", "local P=t:D();t.p=nil;t.a=nil;t.n=nil;t.k=nil;t.s=nil;t.m=nil;t.g=nil;");
+    }
+
+    if (options.compactRuntime === true) {
+        R = compactRuntimeSource(R);
     }
     // D/O/R are generated as source fragments. X7.2 randomizes the public
     // field names on every build while preserving the VM semantics.

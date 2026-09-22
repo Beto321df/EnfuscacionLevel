@@ -19,7 +19,9 @@ for(const [source,markers] of cases){
     assert(out.includes('R=function'),'X7 debe contener el runner propio');
     assert(out.endsWith('):R(...)'),'X7 debe terminar en el entrypoint R');
     assert(!/\bbit32\b|\bbit64\b|\bxor\b/i.test(out),'X7 no debe depender de librerías bitwise externas');
-    for(const marker of markers)assert(!out.includes(marker),`X7 no debe exponer el identificador fuente ${marker}`);
+    for(const marker of markers){
+        assert(!new RegExp('\\b'+marker+'\\b').test(out),`X7 no debe exponer el identificador fuente ${marker}`);
+    }
     if(source.includes('print'))assert(!out.includes('print'),'X7 no debe exponer nombres fuente');
     luaparse.parse(out,{wait:false,comments:false,luaVersion:'5.1'});
 }

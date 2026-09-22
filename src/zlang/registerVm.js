@@ -394,8 +394,11 @@ function lowerFunction(fn) {
                     break;
                 }
                 case OPS.SET_MEMBER: {
-                    const value = pop(stack);
-                    const obj = pop(stack);
+                    const n = stack.length;
+                    if (n < 2) throw new Error('Z registerizer: stack underflow.');
+                    const obj = stack[n - 2];
+                    const value = stack[n - 1];
+                    stack.length = n - 2;
                     emit(REG_OPS.SET_MEMBER, obj, a, value);
                     break;
                 }
@@ -408,9 +411,12 @@ function lowerFunction(fn) {
                     break;
                 }
                 case OPS.SET_INDEX: {
-                    const value = pop(stack);
-                    const key = pop(stack);
-                    const obj = pop(stack);
+                    const n = stack.length;
+                    if (n < 3) throw new Error('Z registerizer: stack underflow.');
+                    const obj = stack[n - 3];
+                    const key = stack[n - 2];
+                    const value = stack[n - 1];
+                    stack.length = n - 3;
                     emit(REG_OPS.SET_INDEX, obj, key, value);
                     break;
                 }

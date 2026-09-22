@@ -207,39 +207,68 @@ function buildBlocks(code) {
     return { blocks, byStart };
 }
 
+function reachableBlocks(blocks, byStart) {
+    const reachable = new Set();
+    const queue = [1];
+
+    while (queue.length) {
+        const start = queue.shift();
+        if (reachable.has(start)) continue;
+
+        const block = byStart.get(start);
+        if (!block) continue;
+
+        reachable.add(start);
+        for (const next of block.succ || []) {
+            if (!reachable.has(next.start)) queue.push(next.start);
+        }
+    }
+
+    return blocks.filter(block => reachable.has(block.start));
+}
+
 function analyzeHeights(code, blocks, byStart) {
     const heights = new Map();
 
-    // Analyze every reachable region. The source compiler may leave harmless
-    // unreachable blocks behind (for example a jump following a return). Those
-    // regions still need internally consistent stack heights before lowering.
+    // Only analyze blocks reachable from the function entry. The source
+    // compiler can intentionally leave dead blocks behind after return/break/
+    // continue or unconditional jumps. Treating those blocks as executable
+    // predecessors creates false stack merges such as 0 != 2.
     const propagate = root => {
         if (heights.has(root)) return;
         heights.set(root, 0);
         const queue = [root];
+
         while (queue.length) {
             const start = queue.shift();
             const block = byStart.get(start);
             if (!block) continue;
+
             let height = heights.get(start);
             for (let pc = block.start; pc <= block.end; pc += 1) {
                 height += stackDelta(code[pc - 1]);
-                if (height < 0) throw new Error(`Z registerizer: stack underflow en pc ${pc}.`);
+                if (height < 0) {
+                    throw new Error(`Z registerizer: stack underflow en pc ${pc}.`);
+                }
             }
+
             for (const target of successors(code, block.end)) {
+                // A target outside the block map (for example code.length + 1)
+                // is a valid function exit, not a stack-merge location.
+                if (!byStart.has(target)) continue;
+
                 const old = heights.get(target);
                 if (old === undefined) {
                     heights.set(target, height);
                     queue.push(target);
                 } else if (old !== height) {
-                    throw new Error(`Z registerizer: merge de stack incompatible en pc ${target} (${old} != ${height}).`);
+                    throw new Error(`Z registerizer: merge de stack incompatible en pc ${target} (${old} != ${height}); predecessor ${block.start}-${block.end}.`);
                 }
             }
         }
     };
 
     propagate(1);
-    for (const block of blocks) propagate(block.start);
     return heights;
 }
 
@@ -261,7 +290,8 @@ function lowerFunction(fn) {
         throw new Error('Z registerizer: ZIR legacy LOAD_VAR/STORE_VAR requiere recompilación.');
     }
 
-    const { blocks, byStart } = buildBlocks(code);
+    const { blocks: allBlocks, byStart } = buildBlocks(code);
+    const blocks = reachableBlocks(allBlocks, byStart);
     const heights = analyzeHeights(code, blocks, byStart);
     const { entries, next: firstTemp } = makeEntryRegisters(blocks, heights);
     const reserved = new Set([...entries.values()].flat());

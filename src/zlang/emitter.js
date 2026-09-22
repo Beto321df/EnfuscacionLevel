@@ -395,45 +395,20 @@ function buildEmissionPlan(program, options = {}) {
     shuffleConstants(out);
 
     if (requestedBackend === 'register') {
-        let registerReady = true;
-        const stackFallbackProgram = cloneProgram(out);
-        try {
-            const lowered = registerizeProgram(out);
-            out.backend = lowered.backend;
-            out.functions = lowered.functions;
-            out.metadata = lowered.metadata;
-            fuseRegisterComparisons(out);
-            permuteRegisterFile(out, options.registers || {});
-            diversifyRegisterIsa(out, options.isa || {});
-            validateRegisterProgram(out);
-            verifyProgram(out, { backend: 'register' });
-            // Capture semantic analysis before physical branch-target encoding.
-            out.metadata = { ...(out.metadata || {}), analysisBeforePacking: analyzeProgram(out) };
-            // Only after semantic verification, hide branch destinations as per-function tokens.
-            encodeRegisterControlTargets(out, options.controlTargets || {});
-        } catch (error) {
-            const message = String(error && error.message || error);
-            const recoverableRegisterConflict =
-                /merge de stack incompatible|stack underflow en pc|registerizer: stack underflow/i.test(message);
-            if (!recoverableRegisterConflict) throw error;
-
-            // Registerization is an optimization/backend choice, not a reason to
-            // reject valid source. Some complex multi-result CFGs can still expose
-            // a stack-height conflict in the register backend. Restore the clean
-            // pre-register IR and continue through the normal stack encoder.
-            registerReady = false;
-            out.backend = 'stack';
-            out.functions = stackFallbackProgram.functions;
-            out.metadata = {
-                ...(stackFallbackProgram.metadata || {}),
-                registerFallback: true,
-                registerFallbackReason: message
-            };
-        }
-        if (!registerReady) {
-            out.metadata = { ...(out.metadata || {}), analysisBeforePacking: analyzeProgram(out) };
-        }
-    } else {
+        const lowered = registerizeProgram(out);
+        out.backend = lowered.backend;
+        out.functions = lowered.functions;
+        out.metadata = lowered.metadata;
+        fuseRegisterComparisons(out);
+        permuteRegisterFile(out, options.registers || {});
+        diversifyRegisterIsa(out, options.isa || {});
+        validateRegisterProgram(out);
+        verifyProgram(out, { backend: 'register' });
+        // Capture semantic analysis before physical branch-target encoding.
+        out.metadata = { ...(out.metadata || {}), analysisBeforePacking: analyzeProgram(out) };
+        // Only after semantic verification, hide branch destinations as per-function tokens.
+        encodeRegisterControlTargets(out, options.controlTargets || {});
+    }    } else {
         out.backend = 'stack';
         out.metadata = { ...(out.metadata || {}), analysisBeforePacking: analyzeProgram(out) };
     }

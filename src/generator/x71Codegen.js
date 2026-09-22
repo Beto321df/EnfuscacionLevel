@@ -705,9 +705,9 @@ function payloadGuardHash(payload, hi, lo, key, step, mode = 0) {
 function compactRuntimeSource(source) {
     return source
         .replace("local dbg={};", "")
-        .replace(/dbg\\[#dbg\\+1\\]=count;/g, "")
-        .replace(/fn\\.q=\\{\\};fn\\.q=\\{\\};/g, "fn.q={};")
-        .replace(/;local function J\\(op,f\\).*?end;for pc=1,count do/, ";for pc=1,count do")
+        .replace(/dbg\[#dbg\+1\]=count;/g, "")
+        .replace(/fn\.q=\{\};fn\.q=\{\};/g, "fn.q={};")
+        .replace(/;local function J\(op,f\).*?end;for pc=1,count do/, ";for pc=1,count do")
         .replace("local semanticByPhysical={};for q=1,56 do semanticByPhysical[q]=iu()end;fn.q=semanticByPhysical;", "fn.q={};for q=1,56 do fn.q[q]=iu()end;")
         .replace(/'X71[^']*'/g, "''");
 }

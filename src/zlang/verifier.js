@@ -9,7 +9,11 @@ function decodeTarget(fn, value) {
 
 function fail(msg) { throw new Error(`Z3 verifier: ${msg}`); }
 function inRange(value, max, label) { if (!Number.isInteger(value) || value < 0 || value >= max) fail(`${label} fuera de rango (${value}, max ${max - 1}).`); }
-function jumpTarget(value, len, label) { if (!Number.isInteger(value) || value < 1 || value > len) fail(`${label} inválido (${value}).`); }
+function jumpTarget(value, len, label) {
+    // A branch to the instruction immediately after the function is a valid
+    // VM exit target (the runtime loop naturally terminates when pc > length).
+    if (!Number.isInteger(value) || value < 1 || value > len + 1) fail(`${label} inválido (${value}).`);
+  }
 
 function verifyStackFunction(fn, fnCount, constCount) {
     const code = fn.code || [];

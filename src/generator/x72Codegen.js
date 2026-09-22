@@ -8,23 +8,17 @@ function hardeningPlan(name, attempt, sourceLines) {
     const max = String(name).toLowerCase() === 'maximum';
     const profiles = max
         ? [
-            { stringChance: 0.82, numberChance: 0.68, opaqueMin: 8, distributedMin: 48, interval: 48, decoys: 6 },
-            { stringChance: 0.68, numberChance: 0.54, opaqueMin: 12, distributedMin: 64, interval: 64, decoys: 4 },
-            { stringChance: 0.52, numberChance: 0.42, opaqueMin: 20, distributedMin: 96, interval: 96, decoys: 2 },
-            { stringChance: 0.38, numberChance: 0.30, opaqueMin: 28, distributedMin: 128, interval: 128, decoys: 0 }
+            { stringChance: 0.46, numberChance: 0.24, opaqueMin: 12, distributedMin: 64, interval: 112, decoys: 3 },
+            { stringChance: 0.36, numberChance: 0.18, opaqueMin: 16, distributedMin: 96, interval: 144, decoys: 2 },
+            { stringChance: 0.28, numberChance: 0.12, opaqueMin: 24, distributedMin: 128, interval: 192, decoys: 1 },
+            { stringChance: 0.20, numberChance: 0.08, opaqueMin: 32, distributedMin: 192, interval: 256, decoys: 0 }
         ]
         : [
-            { stringChance: 0.78, numberChance: 0.64, opaqueMin: 8, distributedMin: 48, interval: 48, decoys: 4 },
-            { stringChance: 0.64, numberChance: 0.50, opaqueMin: 14, distributedMin: 72, interval: 72, decoys: 2 },
-            { stringChance: 0.48, numberChance: 0.38, opaqueMin: 22, distributedMin: 112, interval: 112, decoys: 0 }
+            { stringChance: 0.34, numberChance: 0.16, opaqueMin: 16, distributedMin: 96, interval: 160, decoys: 2 },
+            { stringChance: 0.26, numberChance: 0.12, opaqueMin: 20, distributedMin: 128, interval: 192, decoys: 1 },
+            { stringChance: 0.18, numberChance: 0.08, opaqueMin: 28, distributedMin: 192, interval: 256, decoys: 0 }
         ];
-    const base = profiles[Math.min(attempt, profiles.length - 1)];
-    // Very large sources already provide plenty of semantic material. Avoid
-    // multiplying the IR excessively before we know whether the payload fits.
-    if (sourceLines > 3500 && attempt === 0) {
-        return { ...base, stringChance: Math.min(base.stringChance, 0.70), numberChance: Math.min(base.numberChance, 0.56), interval: Math.max(base.interval, 64) };
-    }
-    return base;
+    return profiles[Math.min(attempt, profiles.length - 1)];
 }
 
 class X72CodeGenerator {

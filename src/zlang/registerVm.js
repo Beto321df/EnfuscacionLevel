@@ -772,7 +772,9 @@ function validateRegisterProgram(program) {
         for (const ins of fn.code) {
             if (!Array.isArray(ins) || ins.length !== 5 || !Number.isInteger(ins[0]) || ins[0] < 1 || ins[0] > REG_OPCODE_COUNT) throw new Error(`ZRVM instrucción inválida en función ${i}.`);
             if (ins.slice(1).some(v => !Number.isInteger(v) || v < 0)) throw new Error(`ZRVM operando inválido en función ${i}.`);
-            const name = Object.keys(REG_OPS).find(key => REG_OPS[key] === ins[0]);
+            const rawOp = ins[0];
+            const semanticOp = Array.isArray(fn.opcodeDecode) ? (fn.opcodeDecode[rawOp] ?? rawOp) : rawOp;
+            const name = Object.keys(REG_OPS).find(key => REG_OPS[key] === semanticOp);
             const base = REG_ALIAS_BASE[name] || name;
             const fields = REGISTER_FIELDS[base] || [];
             for (const field of fields) {

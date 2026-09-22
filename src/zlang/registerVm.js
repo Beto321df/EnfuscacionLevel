@@ -685,6 +685,7 @@ function fuseRegisterComparisons(program) {
     };
     for (const fn of program.functions) {
         const code = fn.code || [];
+        let functionFused = 0;
         const targeted = new Set();
         for (const ins of code) {
             const name = Object.keys(REG_OPS).find(k => REG_OPS[k] === ins?.[0]);
@@ -744,7 +745,7 @@ function fuseRegisterComparisons(program) {
                         first[2], first[3], first[4], branch[2]
                     ]);
                     i = moveEnd + 2;
-                    fused += 1;
+                    functionFused += 1;
                     continue;
                 }
             }
@@ -765,16 +766,25 @@ function fuseRegisterComparisons(program) {
                 if (oldToNew.has(ins[field])) ins[field] = oldToNew.get(ins[field]);
             }
         }
+        let valid = true;
         for (const ins of next) {
             const name = Object.keys(REG_OPS).find(k => REG_OPS[k] === ins[0]);
             const base = REG_ALIAS_BASE[name] || name;
             if (base === 'FUSED_BIN_JUMP_FALSE' || base === 'FUSED_BIN_JUMP_TRUE') {
                 const target = ins[4];
                 if (!Number.isInteger(target) || target < 1 || target > next.length + 1) {
-                    throw new Error('ZRVM fusion: target inválido después de fusionar (' + target + '/' + (next.length + 1) + ').');
+                    valid = false;
+                    break;
                 }
             }
         }
+        if (!valid) {
+            // Fusion is an optimization only. Never let a bad relocation make
+            // the whole register pipeline fail; keep the original function.
+            fn.code = code.map(ins => ins.slice());
+            continue;
+        }
+        fused += functionFused;
         fn.code = next;
     }
     program.metadata = {

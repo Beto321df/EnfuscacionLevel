@@ -8,6 +8,18 @@ const MAX_OUTPUT = 1024 * 1024;
 
 function hardeningPlan(name, attempt, sourceLines) {
     const max = String(name).toLowerCase() === 'maximum';
+    // Large real-world scripts need density, not dozens of extra IR nodes.
+    // Keep the semantic hardening layers enabled, but make them sparse as the
+    // source grows so the final payload stays practical for script executors.
+    if (sourceLines > 250) {
+        const large = [
+            { stringChance: 0.28, numberChance: 0.22, opaqueMin: 24, distributedMin: 192, interval: 192, decoys: 0 },
+            { stringChance: 0.18, numberChance: 0.14, opaqueMin: 48, distributedMin: 320, interval: 320, decoys: 0 },
+            { stringChance: 0.10, numberChance: 0.08, opaqueMin: 72, distributedMin: 512, interval: 512, decoys: 0 },
+            { stringChance: 0.04, numberChance: 0.04, opaqueMin: 128, distributedMin: 1024, interval: 1024, decoys: 0 }
+        ];
+        return large[Math.min(attempt, large.length - 1)];
+    }
     const profiles = max
         ? [
             { stringChance: 0.82, numberChance: 0.68, opaqueMin: 8, distributedMin: 48, interval: 48, decoys: 6 },
@@ -20,13 +32,7 @@ function hardeningPlan(name, attempt, sourceLines) {
             { stringChance: 0.64, numberChance: 0.50, opaqueMin: 14, distributedMin: 72, interval: 72, decoys: 2 },
             { stringChance: 0.48, numberChance: 0.38, opaqueMin: 22, distributedMin: 112, interval: 112, decoys: 0 }
         ];
-    const base = profiles[Math.min(attempt, profiles.length - 1)];
-    // Very large sources already provide plenty of semantic material. Avoid
-    // multiplying the IR excessively before we know whether the payload fits.
-    if (sourceLines > 3500 && attempt === 0) {
-        return { ...base, stringChance: Math.min(base.stringChance, 0.70), numberChance: Math.min(base.numberChance, 0.56), interval: Math.max(base.interval, 64) };
-    }
-    return base;
+    return profiles[Math.min(attempt, profiles.length - 1)];
 }
 
 class X72CodeGenerator {
@@ -86,13 +92,18 @@ class X72CodeGenerator {
                     preferNativeGlobals: true,
                     purgePayload: true,
                     encodeLocalOperands: true,
-                    encodeInstructionRoute: true,
+                    // For large scripts, compact routing keeps the same logical
+                    // indirection without spending 8-16 bytes per instruction.
+                    encodeInstructionRoute: lineCount <= 250,
                     encodeOperandFeedback: true,
                     encodeConstantRoute: true,
                     encodeTargetTokens: true,
+                    compactRoutes: true,
+                    variableOperands: true,
                     polymorphicShell: true,
                     polymorphicDispatch: true,
                     rollingPayload: true,
+                    compactPayload: true,
                     lazyConstants: true
                 });
 

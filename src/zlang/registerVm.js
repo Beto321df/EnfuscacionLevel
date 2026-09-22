@@ -685,6 +685,19 @@ function fuseRegisterComparisons(program) {
     };
     for (const fn of program.functions) {
         const code = fn.code || [];
+        const targeted = new Set();
+        for (const ins of code) {
+            const name = Object.keys(REG_OPS).find(k => REG_OPS[k] === ins?.[0]);
+            const base = REG_ALIAS_BASE[name] || name;
+            const fields =
+                base === 'JUMP' || base === 'BREAK' ? [1] :
+                base === 'JUMP_IF_FALSE' || base === 'JUMP_IF_TRUE' ? [2] :
+                base === 'FOR_NUM_CHECK' || base === 'FOR_NUM_NEXT' ? [1] :
+                base === 'ITER_PREP' ? [4] :
+                base === 'ITER_NEXT' ? [1, 2] :
+                base === 'FUSED_BIN_JUMP_FALSE' || base === 'FUSED_BIN_JUMP_TRUE' ? [4] : [];
+            for (const field of fields) if (Number.isInteger(ins[field])) targeted.add(ins[field]);
+        }
         const next = [];
         const oldToNew = new Map();
         for (let i = 0; i < code.length; ) {
@@ -710,7 +723,20 @@ function fuseRegisterComparisons(program) {
                 const branch = code[moveEnd + 1];
                 const bn = Object.keys(REG_OPS).find(k => REG_OPS[k] === branch?.[0]);
                 const bb = REG_ALIAS_BASE[bn] || bn;
-                if ((bb === 'JUMP_IF_FALSE' || bb === 'JUMP_IF_TRUE') && branch[1] === valueReg && Number.isInteger(branch[2]) && branch[2] >= 1 && branch[2] <= code.length) {
+                const branchPc = moveEnd + 2;
+                let safeFusion = true;
+                for (let pc = i + 1; pc <= branchPc; pc += 1) {
+                    if (targeted.has(pc)) {
+                        safeFusion = false;
+                        break;
+                    }
+                }
+                if ((bb === 'JUMP_IF_FALSE' || bb === 'JUMP_IF_TRUE') &&
+                    safeFusion &&
+                    branch[1] === valueReg &&
+                    Number.isInteger(branch[2]) &&
+                    branch[2] >= 1 &&
+                    branch[2] <= code.length) {
                     const newPc = next.length + 1;
                     for (let oldPc = i + 1; oldPc <= moveEnd + 1; oldPc += 1) oldToNew.set(oldPc, newPc);
                     next.push([
@@ -737,6 +763,16 @@ function fuseRegisterComparisons(program) {
             const base = REG_ALIAS_BASE[name] || name;
             for (const field of branchTargetFields(base)) {
                 if (oldToNew.has(ins[field])) ins[field] = oldToNew.get(ins[field]);
+            }
+        }
+        for (const ins of next) {
+            const name = Object.keys(REG_OPS).find(k => REG_OPS[k] === ins[0]);
+            const base = REG_ALIAS_BASE[name] || name;
+            if (base === 'FUSED_BIN_JUMP_FALSE' || base === 'FUSED_BIN_JUMP_TRUE') {
+                const target = ins[4];
+                if (!Number.isInteger(target) || target < 1 || target > next.length + 1) {
+                    throw new Error('ZRVM fusion: target inválido después de fusionar (' + target + '/' + (next.length + 1) + ').');
+                }
             }
         }
         fn.code = next;

@@ -22,6 +22,8 @@ function isZ3Loader(code) {
 module.exports = async function handler(req, res) {
     const DB_URL = 'https://loaderz1-default-rtdb.firebaseio.com';
     const SECRET = process.env.FIREBASE_SECRET;
+    const MAX_SCRIPTS_PER_ACCOUNT = 3;
+    const MAX_LINES_PER_SCRIPT = 5000;
 
     if (req.method === 'GET') {
         const { user } = req.query;
@@ -56,12 +58,39 @@ module.exports = async function handler(req, res) {
 
     if (req.method === 'POST') {
         const { user, id, code, source: providedSource, isUpdate } = req.body;
+        const sourceForLimit = typeof providedSource === 'string' ? providedSource : code;
+        if (typeof sourceForLimit === 'string' && sourceForLimit.split(/\r?\n/).length > MAX_LINES_PER_SCRIPT) {
+            return res.status(413).json({
+                ok: false,
+                msg: `Límite alcanzado: máximo ${MAX_LINES_PER_SCRIPT.toLocaleString()} líneas por script.`
+            });
+        }
         if (!user || !id || !code) return res.status(400).json({ msg: 'Usuario, ID y código son obligatorios.' });
 
         const cleanUser = user.replace(/[^a-zA-Z0-9_-]/g, '');
         const cleanId = id.replace(/[^a-zA-Z0-9_-]/g, '');
 
         try {
+            const userScriptsUrl = `${DB_URL}/users/${cleanUser}/user_scripts.json?auth=${SECRET}`;
+            const userScriptsRes = await fetch(userScriptsUrl);
+            if (!userScriptsRes.ok) {
+                console.error('Firebase script count lookup failed:', userScriptsRes.status);
+                return res.status(502).json({
+                    ok: false,
+                    msg: 'Firebase no pudo comprobar tus scripts.'
+                });
+            }
+
+            const userScriptsMap = (await userScriptsRes.json()) || {};
+            const existingOwnedIds = Object.keys(userScriptsMap);
+
+            if (!isUpdate && existingOwnedIds.length >= MAX_SCRIPTS_PER_ACCOUNT) {
+                return res.status(400).json({
+                    ok: false,
+                    msg: `Límite alcanzado: máximo ${MAX_SCRIPTS_PER_ACCOUNT} scripts por cuenta.`
+                });
+            }
+
             const scriptRefUrl = `${DB_URL}/scripts/${cleanId}.json?auth=${SECRET}`;
             let existingData = null;
             const checkRes = await fetch(scriptRefUrl);

@@ -661,7 +661,9 @@ function permuteRegisterFile(program, options = {}) {
             for (let i = 0; i < size; i += 1) if (base + i >= 0 && base + i < count) protectedRegs.add(base + i);
         };
         for (const ins of fn.code) {
-            const name = Object.keys(REG_OPS).find(key => REG_OPS[key] === ins[0]);
+            const rawOp = ins[0];
+            const semanticOp = Array.isArray(fn.opcodeDecode) ? (fn.opcodeDecode[rawOp] ?? rawOp) : rawOp;
+            const name = Object.keys(REG_OPS).find(key => REG_OPS[key] === semanticOp);
             const base = REG_ALIAS_BASE[name] || name;
             switch (base) {
                 case 'CALL': case 'CALL_MULTI':

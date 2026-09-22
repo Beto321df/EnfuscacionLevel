@@ -7,6 +7,10 @@ const source="local TeleportService = game:GetService(\"TeleportService\")\nloca
 console.log('BENCH lines',source.split(/\r?\n/).length,'chars',source.length);
 const exactGenerated=new X72().generate(source,{preset:'maximum'});
 console.log('X72 EXACT OUTPUT',exactGenerated.length,'chars');
+const benchNative=buildNativeProgram(source,{fallback:false});
+const benchPlan=buildEmissionPlan(benchNative,{backend:'register'});
+const packed=X72.buildContainer(benchPlan,{runtimeGuard:true,preferNativeGlobals:true,purgePayload:true,encodeLocalOperands:true,encodeInstructionRoute:false,encodeOperandFeedback:true,encodeConstantRoute:true,encodeTargetTokens:false,polymorphicShell:false,polymorphicDispatch:false,rollingPayload:true,lazyConstants:true});
+console.log('RAW CONTAINER',packed.bytes.length,'bytes');
 for(const optimize of [false,true]){
   try{
     const p=buildNativeProgram(source,{fallback:false,optimize,polymorphic:false});

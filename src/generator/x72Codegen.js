@@ -37,78 +37,59 @@ class X72CodeGenerator {
 
         const preset = resolvePreset(options.preset || 'maximum');
         const lineCount = source.split(/\r?\n/).length;
-        const maxAttempts = options.fitToLimit === false ? 1 : 4;
-        let lastOutput = null;
-        let lastError = null;
+        const plan = hardeningPlan(preset.name, 0, lineCount);
 
-        for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-            try {
-                const native = buildNativeProgram(source, {
-                    polymorphOptions: preset.polymorph
-                });
+        const native = buildNativeProgram(source, {
+            polymorphOptions: preset.polymorph
+        });
 
-                native.metadata = {
-                    ...(native.metadata || {}),
-                    strengthPreset: preset.name,
-                    engine: 'X7.2 hardened',
-                    hardeningAttempt: attempt
-                };
+        native.metadata = {
+            ...(native.metadata || {}),
+            strengthPreset: preset.name,
+            engine: 'X7.2 hardened',
+            hardeningAttempt: 0
+        };
 
-                const plan = hardeningPlan(preset.name, attempt, lineCount);
-                hardenProgram(native, {
-                    strings: {
-                        chance: options.stringSplitChance === undefined ? plan.stringChance : options.stringSplitChance
-                    },
-                    numbers: {
-                        chance: options.numberSplitChance === undefined ? plan.numberChance : options.numberSplitChance
-                    },
-                    opaque: {
-                        minFunctionLength: options.opaqueMinFunctionLength || plan.opaqueMin
-                    },
-                    distributedOpaque: {
-                        minFunctionLength: options.distributedOpaqueMinFunctionLength || plan.distributedMin,
-                        interval: options.distributedOpaqueInterval || plan.interval
-                    },
-                    decoys: {
-                        count: options.decoyFunctions === undefined ? plan.decoys : options.decoyFunctions
-                    }
-                });
-
-                const program = buildEmissionPlan(native, {
-                    backend: options.backend === undefined ? preset.backend : options.backend,
-                    diversify: options.diversify || preset.diversify,
-                    registers: options.registers || preset.registers || {},
-                    isa: options.isa || preset.isa
-                });
-
-                const generated = X71CodeGenerator.x71Loader(program, {
-                    runtimeGuard: true,
-                    preferNativeGlobals: true,
-                    purgePayload: true,
-                    encodeLocalOperands: true,
-                    encodeInstructionRoute: true,
-                    encodeOperandFeedback: true,
-                    encodeConstantRoute: true,
-                    encodeTargetTokens: true,
-                    polymorphicShell: true,
-                    polymorphicDispatch: true,
-                    rollingPayload: true,
-                    lazyConstants: true
-                });
-
-                lastOutput = generated;
-                if (generated.length <= MAX_OUTPUT) return generated;
-            } catch (error) {
-                lastError = error;
-                // A smaller hardening profile is only a size fallback. Compiler
-                // errors are retried because each attempt rebuilds a fresh IR.
+        hardenProgram(native, {
+            strings: {
+                chance: options.stringSplitChance === undefined ? plan.stringChance : options.stringSplitChance
+            },
+            numbers: {
+                chance: options.numberSplitChance === undefined ? plan.numberChance : options.numberSplitChance
+            },
+            opaque: {
+                minFunctionLength: options.opaqueMinFunctionLength || plan.opaqueMin
+            },
+            distributedOpaque: {
+                minFunctionLength: options.distributedOpaqueMinFunctionLength || plan.distributedMin,
+                interval: options.distributedOpaqueInterval || plan.interval
+            },
+            decoys: {
+                count: options.decoyFunctions === undefined ? plan.decoys : options.decoyFunctions
             }
-        }
+        });
 
-        if (lastOutput && lastOutput.length > MAX_OUTPUT) {
-            throw new Error(`X72: salida protegida de ${lastOutput.length} caracteres supera el límite de ${MAX_OUTPUT}.`);
-        }
-        throw lastError || new Error('X72: no se pudo generar una salida protegida.');
+        const program = buildEmissionPlan(native, {
+            backend: options.backend === undefined ? preset.backend : options.backend,
+            diversify: options.diversify || preset.diversify,
+            registers: options.registers || preset.registers || {},
+            isa: options.isa || preset.isa
+        });
+
+        return X71CodeGenerator.x71Loader(program, {
+            runtimeGuard: true,
+            preferNativeGlobals: true,
+            purgePayload: true,
+            encodeLocalOperands: true,
+            encodeInstructionRoute: true,
+            encodeOperandFeedback: true,
+            encodeConstantRoute: true,
+            encodeTargetTokens: true,
+            polymorphicShell: true,
+            polymorphicDispatch: true,
+            rollingPayload: true,
+            lazyConstants: true
+        });
     }
 }
 

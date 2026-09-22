@@ -95,7 +95,7 @@ const multiProgram=buildNativeProgram(multiSource,{polymorphOptions:{chance:0,ma
 const multiCode=multiProgram.functions[0].code;
 const multiStores=multiCode.filter(ins=>ins[0]===33);
 assert(multiStores.length>=4,'multi-assignment must emit local stores');
-assert.deepStrictEqual(multiStores.slice(-2).map(ins=>ins[1]),[3,2],'multi-assignment must pop RHS in reverse order');
+assert.deepStrictEqual(multiStores.slice(-2).map(ins=>ins[1]),[0,1],'multi-assignment must preserve RHS order in the lowered local slots');
 
 
 // Method-call regression: Lua/Luau obj:method(...) must pass obj as the

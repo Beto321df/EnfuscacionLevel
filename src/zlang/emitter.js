@@ -378,7 +378,7 @@ function buildEmissionPlan(program, options = {}) {
     validateIR(program);
     const requestedBackend = options.backend === undefined ? 'register' : String(options.backend).toLowerCase();
     if (requestedBackend !== 'register' && requestedBackend !== 'stack') throw new Error(`Z3 backend desconocido: ${requestedBackend}`);
-    const out = cloneProgram(program);
+    let out = cloneProgram(program);
 
     // Constant diversification expands selected literals before control-flow
     // relocation, so branch targets are translated once by the same CFG pass.
@@ -388,26 +388,54 @@ function buildEmissionPlan(program, options = {}) {
     // arithmetic patterns can still collapse into fused operations.
     fuseSuperinstructions(out);
 
-    // This remains one integrated CFG transformation: blocks are relocated
-    // once, then explicit jumps repair the new physical ordering.
-    for (const fn of out.functions) fn.code = shuffleControlFlow(fn.code);
+    // Function/constant relocation is CFG-neutral. Keep a clean copy so a
+    // complex control-flow graph can retry registerization without the
+    // physical block relocation step.
     shuffleFunctions(out);
     shuffleConstants(out);
+    const stableBase = cloneProgram(out);
+
+    // Full control-flow permutation remains the first choice.
+    for (const fn of out.functions) fn.code = shuffleControlFlow(fn.code);
+    const shuffledBase = cloneProgram(out);
 
     if (requestedBackend === 'register') {
-        const lowered = registerizeProgram(out);
-        out.backend = lowered.backend;
-        out.functions = lowered.functions;
-        out.metadata = lowered.metadata;
-        fuseRegisterComparisons(out);
-        permuteRegisterFile(out, options.registers || {});
-        diversifyRegisterIsa(out, options.isa || {});
-        validateRegisterProgram(out);
-        verifyProgram(out, { backend: 'register' });
-        // Capture semantic analysis before physical branch-target encoding.
-        out.metadata = { ...(out.metadata || {}), analysisBeforePacking: analyzeProgram(out) };
-        // Only after semantic verification, hide branch destinations as per-function tokens.
-        encodeRegisterControlTargets(out, options.controlTargets || {});
+        const runRegisterPipeline = base => {
+            const candidate = cloneProgram(base);
+            const lowered = registerizeProgram(candidate);
+            candidate.backend = lowered.backend;
+            candidate.functions = lowered.functions;
+            candidate.metadata = lowered.metadata;
+            fuseRegisterComparisons(candidate);
+            permuteRegisterFile(candidate, options.registers || {});
+            diversifyRegisterIsa(candidate, options.isa || {});
+            validateRegisterProgram(candidate);
+            verifyProgram(candidate, { backend: 'register' });
+            candidate.metadata = { ...(candidate.metadata || {}), analysisBeforePacking: analyzeProgram(candidate) };
+            encodeRegisterControlTargets(candidate, options.controlTargets || {});
+            return candidate;
+        };
+
+        const isRecoverableCfgConflict = error =>
+            /merge de stack incompatible|stack underflow en pc|registerizer: stack underflow|edge stack mismatch/i.test(
+                String(error && error.message || error)
+            );
+
+        try {
+            out = runRegisterPipeline(shuffledBase);
+        } catch (error) {
+            if (!isRecoverableCfgConflict(error)) throw error;
+
+            // The backend stays REGISTER. We only preserve the semantic block
+            // order for this CFG when shuffled physical order is incompatible
+            // with the registerizer's abstract stack analysis.
+            out = runRegisterPipeline(stableBase);
+            out.metadata = {
+                ...(out.metadata || {}),
+                controlFlowFallback: 'stable-order',
+                controlFlowFallbackReason: String(error && error.message || error)
+            };
+        }
     } else {
         out.backend = 'stack';
         out.metadata = { ...(out.metadata || {}), analysisBeforePacking: analyzeProgram(out) };

@@ -770,11 +770,15 @@ function validateRegisterProgram(program) {
             const base = REG_ALIAS_BASE[name] || name;
             const fields = REGISTER_FIELDS[base] || [];
             for (const field of fields) {
-                if (ins[field] >= fn.registerCount) throw new Error(`ZRVM registro ${ins[field]} fuera de rango en función ${i}.`);
+                if (ins[field] >= fn.registerCount) {
+                    throw new Error(`ZRVM registro ${ins[field]} fuera de rango en función ${i} (pc/campo ${field}, opcode ${name}, raw ${rawOp}, registerCount ${fn.registerCount}).`);
+                }
             }
             if (base === 'CALL_METHOD_EXPAND') {
                 const tailReg = (ins[4] >>> 16) & 0xFFFF;
-                if (tailReg >= fn.registerCount) throw new Error(`ZRVM registro tail ${tailReg} fuera de rango en función ${i}.`);
+                if (tailReg >= fn.registerCount) {
+                    throw new Error(`ZRVM registro tail ${tailReg} fuera de rango en función ${i} (opcode ${name}, raw ${rawOp}, registerCount ${fn.registerCount}).`);
+                }
             }
         }
     }

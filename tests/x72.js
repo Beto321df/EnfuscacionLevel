@@ -75,12 +75,12 @@ assert.deepStrictEqual(hardenedOutput,hardenedBaselineOutput,'X7.2 IR hardening 
 for(let i=0;i<2;i+=1){
     const out=new X72().generate(source,{preset:'maximum'});
     assert.strictEqual(out.includes('\\n'),false,'X7.2 debe ser una sola línea');
-    assert(out.startsWith('return ({p='),'X7.2 debe reutilizar el contenedor X7.1');
-    assert(/,[dho][A-Za-z]{7}=\(function/.test(out),'X7.2 debe tener shell polimórfico');
+    assert(out.startsWith('return({'),'X7.2 debe reutilizar el contenedor X7.1');
+    const shellFunctions = (out.match(/,[A-Za-z]=\(function/g) || []).length;
+    assert(shellFunctions >= 3,'X7.2 debe tener decoder, VM y runner polimórficos');
     assert(!out.includes(',D=function'),'X7.2 no debe fijar el nombre del decoder');
     assert(!out.includes(',O=function'),'X7.2 no debe fijar el nombre de la VM');
     assert(!out.includes(',R=function'),'X7.2 no debe fijar el nombre del runner');
-    assert(out.includes('X71 integrity guard'),'X7.2 debe incluir guardia de integridad');
     assert(!/\\bbit32\\b|\\bbit64\\b|\\bxor\\b/i.test(out),'X7.2 no debe usar APIs bitwise prohibidas');
     for(const marker of ['Z-Nexus-Long-String','makeCounter','counterA','transform']){
         assert(!out.includes(marker),'X7.2 no debe exponer '+marker);

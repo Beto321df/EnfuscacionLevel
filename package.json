@@ -11,5 +11,8 @@
   "dependencies": {
     "luaparse": "^0.3.1"
   },
-  "devDependencies": {}
+  "devDependencies": {},
+  "engines": {
+    "node": ">=18"
+  }
 }

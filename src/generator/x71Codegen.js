@@ -702,6 +702,31 @@ function payloadGuardHash(payload, hi, lo, key, step, mode = 0) {
     h = (h + (key % 256) * 257 + (step % 256) * 65537 + mode * 104729) % 4294967296;
     return h;
 }
+function compactRuntimeSource(source) {
+    return source
+        .replace("local dbg={};", "")
+        .replace(
+            "local semanticByPhysical={};for q=1,56 do semanticByPhysical[q]=iu()end;fn.q=semanticByPhysical;",
+            "fn.q={};for q=1,56 do fn.q[q]=iu()end;"
+        )
+        .replace(/'X71[^']*'/g, "''");
+}
+
+function makeCompactShellNames() {
+    const pool = shuffle("ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz".split(""));
+    const take = () => pool.pop();
+    return {
+        payload: take(),
+        alphabet: take(),
+        key: take(),
+        step: take(),
+        mode: take(),
+        guard: take(),
+        decoder: take(),
+        executor: take(),
+        runner: take()
+    };
+}
 function x71Loader(program, options = {}) {
     const packed = buildContainer(program, options);
     validateContainer(packed.bytes);
@@ -717,17 +742,25 @@ function x71Loader(program, options = {}) {
         const newEnv = "local G=RE or _G or FE or EE or GE;local function HG(env,k,gameOnly)local v=env and env[k]or nil;if gameOnly and k=='game' then if type(v)=='function'or v==nil then return nil end;local ok,m=pcall(function()return v.GetService end);if not ok or type(m)~='function'then return nil end end;return v end;local GG=function(k)if k=='game' then local v=HG(RE,k,true);if v~=nil then return v end;v=HG(_G,k,true);if v~=nil then return v end;v=HG(FE,k,true);if v~=nil then return v end;v=HG(EE,k,true);if v~=nil then return v end;v=HG(GE,k,true);if v~=nil then return v end;error('X71 global game unavailable')end;local v=GE and GE[k]or nil;if v~=nil then return v end;v=RE and RE[k]or nil;if v~=nil then return v end;v=FE and FE[k]or nil;if v~=nil then return v end;v=EE and EE[k]or nil;if v~=nil then return v end;v=_G and _G[k]or nil;if v~=nil then return v end;v=G and G[k]or nil;if v~=nil then return v end;error('X71 global '..tostring(k))end;local SG=function(k,v)if RE then RE[k]=v elseif FE then FE[k]=v elseif EE then EE[k]=v elseif _G then _G[k]=v elseif GE then GE[k]=v else G[k]=v end end;";
         O = O.replace(oldEnv, newEnv);
     }
-    if (options.polymorphicDispatch === true) {
+    if (options.polymorphicDispatch === true && options.compactRuntime !== true) {
         O = polymorphDispatchSource(O, makeDispatchTokens());
     }
-    const shell = options.polymorphicShell
-        ? (() => {
-            const random = makeShellNames();
-            return { payload: 'p', hi: 'h', lo: 'l', key: 'k', step: 's', mode: 'm', guard: 'g',
-                decoder: random.decoder, executor: random.executor, runner: random.runner };
-        })()
-        : { payload: 'p', hi: 'h', lo: 'l', key: 'k', step: 's', mode: 'm', guard: 'g',
-            decoder: 'D', executor: 'O', runner: 'R' };
+    if (options.compactRuntime === true) {
+        D = compactRuntimeSource(D);
+        O = compactRuntimeSource(O);
+        R = compactRuntimeSource(R);
+    }
+
+    const shell = options.compactRuntime === true
+        ? makeCompactShellNames()
+        : (options.polymorphicShell
+            ? (() => {
+                const random = makeShellNames();
+                return { payload: 'p', hi: 'h', lo: 'l', key: 'k', step: 's', mode: 'm', guard: 'g',
+                    decoder: random.decoder, executor: random.executor, runner: random.runner };
+            })()
+            : { payload: 'p', hi: 'h', lo: 'l', key: 'k', step: 's', mode: 'm', guard: 'g',
+                decoder: 'D', executor: 'O', runner: 'R' });
     const guard = options.runtimeGuard ? payloadGuardHash(payload, alphabet, '', seed, step, cipherMode) : 0;
     const guardField = options.runtimeGuard ? "," + shell.guard + "=" + guard : "";
     let R = options.runtimeGuard
@@ -761,10 +794,8 @@ function x71Loader(program, options = {}) {
         "," + shell.decoder + "=(" + boundD.slice(boundD.indexOf("=") + 1) + ")" +
         "," + shell.executor + "=(" + boundO.slice(boundO.indexOf("=") + 1) + ")" +
         "," + shell.runner + "=(" + boundR.slice(boundR.indexOf("=") + 1) + ")";
-    return "return ({" + object + "}):" + shell.runner + "(...)"
-
+    return "return({" + object + "}):" + shell.runner + "(...)"
 }
-
 class X71CodeGenerator {
     generate(source, options = {}) {
         if (typeof source !== 'string' || !source.trim()) throw new Error('El código Lua/Luau está vacío.');
@@ -777,7 +808,9 @@ class X71CodeGenerator {
             registers: { ...(options.registers || preset.registers || {}), chance: 0 },
             isa: options.isa || preset.isa
         });
-        return x71Loader(program);
+        return x71Loader(program, {
+            compactRuntime: options.compactRuntime !== false
+        });
     }
 }
 X71CodeGenerator.buildContainer = buildContainer;

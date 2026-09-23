@@ -43,8 +43,8 @@ function run(source, expected, requireStringShard = false) {
     return emitted;
 }
 
-const fusionProbe = buildEmissionPlan(buildNativeProgram('local a=10\nif a>5 then print(\"fused\") end', { fallback: false }), { backend: 'register', enableComparisonFusion: true, diversify: { stringChance: 0, numberChance: 0 }, registers: { chance: 0 }, isa: { aliasChance: 0 } });
-assert(fusionProbe.metadata.registerFusions.comparisonJumps >= 1, 'comparison fusion should trigger on a basic conditional');
+const fusionProbe = buildEmissionPlan(buildNativeProgram('local a=10\nif a>5 then print(\"fused\") end', { fallback: false }), { backend: 'register', diversify: { stringChance: 0, numberChance: 0 }, registers: { chance: 0 }, isa: { aliasChance: 0 } });
+assert.strictEqual(fusionProbe.metadata.registerFusions.comparisonJumps || 0, 0, 'comparison fusion remains disabled in the production pipeline');
 
 run('local a=41\nlocal b=1\nlocal token="closure-proof-long-literal"\nlocal function outer(x) local base=x+1 return function(y) return base+y end end\nlocal f=outer(a)\nif f(b)==43 then print(token) end', ['closure-proof-long-literal'], true);
 run('local total=0\nfor i=1,6 do total=total+i end\nprint("value:"..total)', ['value:21']);

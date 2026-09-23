@@ -44,7 +44,13 @@ module.exports = async function handler(req, res) {
 
         // NeverDD treat an existing Z3 loader as source code. This recognizes the
         // legacy formats plus the new mixed visual transport and edit marker.
+        const isCompactX7Loader =
+            stored.startsWith('return(function(') &&
+            stored.includes('return v.v[1]') &&
+            /}\):[A-Za-z]\(\.\.\.\)$/.test(stored);
+
         const isZ3Loader =
+            isCompactX7Loader ||
             stored.includes('--Z3M:') ||
             stored.includes('return(function(P)local T=') ||
             stored.includes('return(function(t,...)') ||

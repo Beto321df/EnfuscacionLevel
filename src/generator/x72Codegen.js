@@ -77,7 +77,8 @@ class X72CodeGenerator {
             backend: options.backend === undefined ? preset.backend : options.backend,
             diversify: options.diversify || preset.diversify,
             registers: options.registers || preset.registers || {},
-            isa: options.isa || preset.isa
+            isa: options.isa || preset.isa,
+            enableComparisonFusion: false
         });
 
         const instructionCount = program.functions.reduce((n, fn) => n + (fn.code?.length || 0), 0);

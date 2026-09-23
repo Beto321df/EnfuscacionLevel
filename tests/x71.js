@@ -53,7 +53,7 @@ assert(implementation.includes("function validateDispatcherStructure(source)"),'
 const syntheticPlan = { used: [2, 5], map: { 2: 41, 5: 7 } };
 const syntheticDispatcher = "head;local X;local F=function()if o==1 then A elseif o==2 then B elseif o==5 then C elseif o==6 then D else error('X71 opcode')end;return";
 const specializedSynthetic = CodeGenerator.specializeDispatchSource(syntheticDispatcher, syntheticPlan);
-const syntheticIds = Array.from(specializedSynthetic.matchAll(/\\b(?:if|elseif) o==([0-9]+) then/g)).map(m => Number(m[1]));
+const syntheticIds = Array.from(specializedSynthetic.matchAll(/\b(?:if|elseif) o==([0-9]+) then/g)).map(m => Number(m[1]));
 assert.deepStrictEqual(syntheticIds,[41,7],'X7.1 debe emitir únicamente los handler IDs asignados a los semánticos usados');
 
 const aliasPlan = CodeGenerator.buildDispatchPlan({

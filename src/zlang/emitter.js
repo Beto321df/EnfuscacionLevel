@@ -406,7 +406,23 @@ function buildEmissionPlan(program, options = {}) {
             candidate.backend = lowered.backend;
             candidate.functions = lowered.functions;
             candidate.metadata = lowered.metadata;
+
+            // Comparison fusion is an optimization, never a prerequisite for
+            // correctness. Validate the fused CFG immediately and fall back to
+            // the unfused register program if relocation produced a bad target.
+            const beforeFusion = cloneProgram(candidate);
             fuseRegisterComparisons(candidate);
+            try {
+                verifyProgram(candidate, { backend: 'register' });
+            } catch (error) {
+                if (!/fused jump/i.test(String(error && error.message || error))) throw error;
+                candidate.functions = beforeFusion.functions;
+                candidate.metadata = {
+                    ...(beforeFusion.metadata || {}),
+                    registerFusions: { comparisonJumps: 0, fallback: 'unfused' }
+                };
+            }
+
             permuteRegisterFile(candidate, options.registers || {});
             diversifyRegisterIsa(candidate, options.isa || {});
             validateRegisterProgram(candidate);

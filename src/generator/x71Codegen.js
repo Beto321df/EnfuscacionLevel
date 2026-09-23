@@ -595,12 +595,19 @@ function validateContainer(bytes) {
     if (L.length !== 16) throw new Error('X7.1: ledger inválido.');
 
     const readSection = section => {
-        let q = 0;
-        const b = section;
-        const one = () => { if (q >= b.length) throw new Error('X7.1: sección truncada.'); return b[q++]; };
+        let q = 0, b12 = 0, bits12 = 0;
+        const one = () => { if (q >= section.length) throw new Error('X7.1: sección truncada.'); return section[q++]; };
         const two = () => { const a=one(),d=one(); return a*256+d; };
         const four = () => { const a=one(),d=one(),e=one(),g=one(); return a*16777216+d*65536+e*256+g; };
-        return { b, one, two, four, get pos(){ return q; } };
+        const twelve = () => {
+            while (bits12 < 12) { b12 += one() * (2 ** bits12); bits12 += 8; }
+            const v = b12 % 4096;
+            b12 = Math.floor(b12 / 4096);
+            bits12 -= 12;
+            return v;
+        };
+        const align = () => { b12 = 0; bits12 = 0; };
+        return { b: section, one, two, four, twelve, align, get pos(){ return q; } };
     };
 
     const cs = readSection(C);
@@ -646,17 +653,20 @@ function validateContainer(bytes) {
         totalInstr += countIns;
         for (let j=0;j<4;j+=1) is.one();
         const layout = is.one();
-        if (layout !== 16 && layout !== 32) throw new Error('X7.1: layout de operandos inválido.');
-        const operand = layout === 16 ? is.two : is.four;
+        if (layout !== 12 && layout !== 16 && layout !== 32) throw new Error('X7.1: layout de operandos inválido.');
+        const operand = layout === 12 ? is.twelve : (layout === 16 ? is.two : is.four);
         for (let j=0;j<6;j+=1) operand();
         if (localMask) for (let j=0;j<2;j+=1) operand();
         if (targetTokenMask) for (let j=0;j<countIns;j+=1) operand();
         if (routeMask) for (let j=0;j<countIns;j+=1) operand();
+        is.align();
         for (let j=0;j<countIns;j+=1) is.one();
         for (let j=0;j<56;j+=1) is.one();
+        is.align();
         for (let j=0;j<8;j+=1) operand();
         if (feedbackMask) for (let j=0;j<4;j+=1) operand();
         for (let j=0;j<countIns*4;j+=1) operand();
+        is.align();
     }
     if (is.pos !== I.length) throw new Error('X7.1: cola en bytecode plano.');
 

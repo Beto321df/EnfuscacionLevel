@@ -97,13 +97,13 @@ for(let i=0;i<4;i+=1){
     assert(!out.includes('table.pack'),'X7.1 no debe depender de table.pack');
     assert(!out.includes('table.unpack'),'X7.1 no debe depender de table.unpack');
     const dispatcher = out.slice(out.indexOf('local X;local F='));
-    const dispatcherIds = Array.from(dispatcher.matchAll(/(?:^|;)elseif o==([0-9]+) then|(?:^|;)if o==([0-9]+) then/g))
-        .map(m => Number(m[1] || m[2]));
+    const dispatcherIds = Array.from(dispatcher.matchAll(/\b(?:if|elseif) o==([0-9]+) then/g))
+        .map(m => Number(m[1]));
     assert.strictEqual(dispatcherIds.length, new Set(dispatcherIds).size, 'X7.1 dispatcher debe tener IDs únicos');
     assert(dispatcherIds.length < 46, 'X7.1 dispatcher debe podar handlers canónicos no utilizados');
     assert.strictEqual((out.match(/local function iV\(\)/g) || []).length, 1, 'X7.1 output no debe duplicar iV');
     assert(!/o==[0-9]+ or o==[0-9]+ then/.test(out),'X7.1 output no debe agrupar handlers del dispatcher');
-    assert(!/if o==[0-9]+ then\\s*(?:elseif|else error)/.test(out),'X7.1 output no debe contener handlers vacíos');
+    assert(!/\bif o==[0-9]+ then\s*(?:elseif|else error)/.test(out),'X7.1 output no debe contener handlers vacíos');
     const packMatch = out.match(/return\(function\([^)]*\)local ([A-Za-z])=function\(\.\.\.\)/);
     assert(packMatch,'X7.1 debe declarar el packer en la carcasa compacta');
     const packerName = packMatch[1];

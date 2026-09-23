@@ -998,11 +998,22 @@ function mangleRuntimeIdentifiers(source, reservedNames = []) {
     );
 }
 
-function makeCompactShellNames() {
+function makeCompactShellNames(sources = []) {
     const pool = shuffle("ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz".split(""));
     const reserved = new Set(["n","h","P","v","z"]);
-    for (let i = pool.length - 1; i >= 0; i -= 1) if (reserved.has(pool[i])) pool.splice(i, 1);
-    const take = () => pool.pop();
+    const used = new Set();
+    for (const source of sources) {
+        for (const match of String(source || "").matchAll(/\b[A-Za-z_][A-Za-z0-9_]*\b/g)) {
+            used.add(match[0]);
+        }
+    }
+    for (let i = pool.length - 1; i >= 0; i -= 1) {
+        if (reserved.has(pool[i]) || used.has(pool[i])) pool.splice(i, 1);
+    }
+    const take = () => {
+        if (!pool.length) throw new Error('X7.1: no hay nombres compactos libres para la carcasa.');
+        return pool.pop();
+    };
     return {
         payload: take(),
         alphabet: take(),
@@ -1040,29 +1051,12 @@ function x71Loader(program, options = {}) {
     }
 
     if (options.compactRuntime === true) {
-        const shell = makeCompactShellNames();
+        const shell = makeCompactShellNames([D, O]);
         const shellNames = Object.values(shell);
-
-        D = specializeRuntimeSource(D, options);
-        D = compactRuntimeSource(D)
-            .replace("D=function(t)local s=t.p;", "function(p,a,n,k,w,h)local s=p;")
-            .replaceAll("t.a", "a")
-            .replaceAll("t.n", "n")
-            .replaceAll("t.k", "k")
-            .replaceAll("t.s", "w")
-            .replaceAll("t.m", "h");
         D = mangleRuntimeIdentifiers(D, shellNames);
-
-        O = specializeRuntimeSource(O, options);
-        O = compactRuntimeSource(O)
-            .replace("O=function(t,P,id,pl,pu,a)", "function(P,id,pl,pu,a)")
-            .replace("X=function(t,P,id,pl,pu,a)", "X=function(P,id,pl,pu,a)")
-            .replaceAll("X(t,P,", "X(P,")
-            // Reuse the outer capsule packer inside the VM executor.
-            .replace("local PACK=function(...)local z={...};z.n=select('#',...);return z end;", "")
-            .replaceAll("PACK", "__X71_PACK__");
         O = mangleRuntimeIdentifiers(O, shellNames);
         O = O.replaceAll("__X71_PACK__", shell.packer);
+
         const guard = options.runtimeGuard ? payloadGuardHash(payload, alphabet, '', seed, step, cipherMode) : 0;
 
         const compactGuard = options.runtimeGuard === true;

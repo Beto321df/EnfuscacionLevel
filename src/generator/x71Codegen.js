@@ -1010,9 +1010,15 @@ function makeCompactShellNames(sources = []) {
     for (let i = pool.length - 1; i >= 0; i -= 1) {
         if (reserved.has(pool[i]) || used.has(pool[i])) pool.splice(i, 1);
     }
+    let fallbackIndex = 0;
     const take = () => {
-        if (!pool.length) throw new Error('X7.1: no hay nombres compactos libres para la carcasa.');
-        return pool.pop();
+        if (pool.length) return pool.pop();
+        let candidate;
+        do {
+            candidate = 'x' + fallbackIndex++;
+        } while (used.has(candidate) || reserved.has(candidate));
+        used.add(candidate);
+        return candidate;
     };
     return {
         payload: take(),

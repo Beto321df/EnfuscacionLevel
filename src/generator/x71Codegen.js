@@ -839,7 +839,10 @@ function parseDispatcherSource(source) {
 
     const tail = source.slice(split);
     const start = tail.indexOf('if o==');
-    const endMarker = "else error('X71 opcode')end;return";
+    // The final dispatcher clause is followed by the while/function closing
+    // ends. Match only the terminal error clause so the parser works before and
+    // after runtime compaction.
+    const endMarker = "else error('X71 opcode')end";
     const end = tail.indexOf(endMarker, start);
     if (start < 0 || end < 0) throw new Error('X7.1: no se encontró el cuerpo del dispatcher.');
 

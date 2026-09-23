@@ -84,14 +84,32 @@ function polymorphIR(program, options = {}) {
         const oldCode = fn.code;
         const nextCode = [];
         const map = new Map();
-        let inserted = 0;
 
+        // Keep the amount of polymorphic padding bounded and stable across
+        // builds. Randomness still decides *where* the NOPs land, but not how
+        // many are inserted. That prevents the same source from swinging
+        // wildly in output size between builds.
+        const insertionPoints = [];
+        for (let i = 0; i < oldCode.length; i += 1) {
+            const op = oldCode[i]?.[0];
+            const isReturn = op === OPS.RETURN || op === OPS.RETURN_MULTI ||
+                op === OPS.RETURN_VOID || op === OPS.RETURN_MIXED;
+            if (!isReturn) insertionPoints.push(i + 1);
+        }
+        const requested = Math.round(insertionPoints.length * chance);
+        const targetCount = Math.min(maxPerFunction, Math.max(0, requested));
+        const shuffledPoints = insertionPoints.slice();
+        for (let i = shuffledPoints.length - 1; i > 0; i -= 1) {
+            const j = Math.floor(randomUnit() * (i + 1));
+            [shuffledPoints[i], shuffledPoints[j]] = [shuffledPoints[j], shuffledPoints[i]];
+        }
+        const selected = new Set(shuffledPoints.slice(0, targetCount));
+
+        let inserted = 0;
         for (let i = 0; i < oldCode.length; i += 1) {
             map.set(i + 1, nextCode.length + 1);
-            const ins = oldCode[i].slice();
-            nextCode.push(ins);
-            const isReturn = ins[0] === OPS.RETURN || ins[0] === OPS.RETURN_MULTI || ins[0] === OPS.RETURN_VOID || ins[0] === OPS.RETURN_MIXED;
-            if (!isReturn && inserted < maxPerFunction && randomUnit() < chance) {
+            nextCode.push(oldCode[i].slice());
+            if (selected.has(i + 1)) {
                 nextCode.push([OPS.NOP, 0, 0, 0, 0]);
                 inserted += 1;
             }

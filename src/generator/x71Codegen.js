@@ -349,7 +349,7 @@ function buildContainer(program, options = {}) {
         const fn = C.functions[i];
         if (fn.params.length > 65535 || fn.upvalues.length > 65535 || fn.iteratorLayouts.length > 65535) throw new Error('X7.1: metadata de función fuera de rango.');
         const k = rand(0x10000, 0xFFFFFFFF) >>> 0;
-        const st = (rand(1, Math.max(1, maxOperand)) | 1) >>> 0;
+        const st = (rand(1, 0xFFFF) | 1) >>> 0;
         // X7.1 metadata must be self-describing: persist both mask parameters.
         u32(metaSection, k);
         u32(metaSection, st);

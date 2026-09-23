@@ -15,6 +15,12 @@ function boundedTargetCount(candidateCount, probability, budget) {
     const p = Math.max(0, Math.min(1, Number(probability) || 0));
     return Math.min(budget, Math.max(0, Math.round(candidateCount * p)));
 }
+function stableRank(value) {
+    return crypto.createHash('sha256').update(String(value)).digest().readUInt32BE(0);
+}
+function stableCandidateKey(item) {
+    return item[0] + ':' + item[2] + ':' + item[3];
+}
 
 function targetFields(ins) {
     switch (ins[0]) {
@@ -54,7 +60,8 @@ function splitStringConstant(program, index, cache, maxShards) {
     if (!constant || constant.type !== 1) return null;
     const value = String(constant.value);
     if (value.length < 8) return null;
-    const shardCount = Math.max(2, Math.min(maxShards, randomInt(2, Math.max(2, Math.min(maxShards, value.length)))));
+    const shardRange = Math.max(1, Math.min(maxShards, value.length) - 1);
+    const shardCount = Math.min(maxShards, 2 + (stableRank(value) % shardRange));
     const cuts = [];
     let remaining = value.length;
     for (let i = 0; i < shardCount - 1; i += 1) {
@@ -79,7 +86,8 @@ function splitNumberConstant(program, index, cache) {
     if (!constant || constant.type !== 2) return null;
     const value = Number(constant.value);
     if (!Number.isSafeInteger(value) || Math.abs(value) > 0x3fffffff) return null;
-    const delta = value === 0 ? 1 : randomInt(1, Math.min(32, Math.max(1, Math.abs(value))));
+    const limit = Math.min(32, Math.max(1, Math.abs(value)));
+    const delta = value === 0 ? 1 : 1 + (stableRank(String(value)) % limit);
     const left = value - delta;
     const right = delta;
     return [
@@ -110,34 +118,39 @@ function diversifyConstants(program, options = {}) {
 
     const stringCandidates = [];
     const numberCandidates = [];
+    const occurrences = new Map();
     for (let f = 0; f < program.functions.length; f += 1) {
         const code = program.functions[f].code || [];
         for (let pc = 0; pc < code.length; pc += 1) {
             const ins = code[pc];
             if (ins?.[0] !== OPS.PUSH_CONST) continue;
-            const constant = program.constants[ins[1]];
+            const constantIndex = ins[1];
+            const constant = program.constants[constantIndex];
+            const occurrenceKey = f + ':' + constantIndex;
+            const occurrence = occurrences.get(occurrenceKey) || 0;
+            occurrences.set(occurrenceKey, occurrence + 1);
+            const item = [f, pc, constantIndex, occurrence];
             if (constant?.type === 1 && String(constant.value).length >= 8) {
-                stringCandidates.push([f, pc]);
+                stringCandidates.push(item);
             } else if (
                 constant?.type === 2 &&
                 Number.isSafeInteger(Number(constant.value)) &&
                 Math.abs(Number(constant.value)) <= 0x3fffffff
             ) {
-                numberCandidates.push([f, pc]);
+                numberCandidates.push(item);
             }
         }
     }
 
-    const selectedStrings = new Set(
-        shuffle(stringCandidates)
-            .slice(0, boundedTargetCount(stringCandidates.length, stringChance, stringBudget))
-            .map(([f, pc]) => f + ':' + pc)
-    );
-    const selectedNumbers = new Set(
-        shuffle(numberCandidates)
-            .slice(0, boundedTargetCount(numberCandidates.length, numberChance, numberBudget))
-            .map(([f, pc]) => f + ':' + pc)
-    );
+    const targetStrings = boundedTargetCount(stringCandidates.length, stringChance, stringBudget);
+    const targetNumbers = boundedTargetCount(numberCandidates.length, numberChance, numberBudget);
+    const selectStable = (candidates, count) => candidates
+        .slice()
+        .sort((a, b) => stableRank(stableCandidateKey(a)) - stableRank(stableCandidateKey(b)))
+        .slice(0, count);
+
+    const selectedStrings = new Set(selectStable(stringCandidates, targetStrings).map(stableCandidateKey));
+    const selectedNumbers = new Set(selectStable(numberCandidates, targetNumbers).map(stableCandidateKey));
 
     for (let f = 0; f < program.functions.length; f += 1) {
         const fn = program.functions[f];
@@ -152,8 +165,11 @@ function diversifyConstants(program, options = {}) {
                 next.push(ins.slice());
                 continue;
             }
-            const key = f + ':' + (oldPc - 1);
-            const constant = program.constants[ins[1]];
+            const constantIndex = ins[1];
+            const constant = program.constants[constantIndex];
+            const occurrenceKey = f + ':' + constantIndex;
+            const occurrence = (occurrences.get(occurrenceKey) || 1) - 1;
+            const key = f + ':' + constantIndex + ':' + occurrence;
             if (constant?.type === 1 && selectedStrings.has(key)) {
                 const pieces = splitStringConstant(program, ins[1], cache, maxShards);
                 if (pieces && pieces.length > 1) {

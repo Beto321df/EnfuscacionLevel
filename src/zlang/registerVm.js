@@ -739,7 +739,7 @@ function fuseRegisterComparisons(program) {
                     branch[2] >= 1 &&
                     branch[2] <= code.length) {
                     const newPc = next.length + 1;
-                    for (let oldPc = i + 1; oldPc <= moveEnd + 1; oldPc += 1) oldToNew.set(oldPc, newPc);
+                    for (let oldPc = i + 1; oldPc <= branchPc; oldPc += 1) oldToNew.set(oldPc, newPc);
                     next.push([
                         bb === 'JUMP_IF_FALSE' ? REG_OPS.FUSED_BIN_JUMP_FALSE : REG_OPS.FUSED_BIN_JUMP_TRUE,
                         first[2], first[3], first[4], branch[2]
@@ -758,24 +758,36 @@ function fuseRegisterComparisons(program) {
         oldToNew.set(code.length + 1, next.length + 1);
 
         // Once every old instruction has a destination in the new stream, repair
-        // all control-flow operands in one pass. Fused branches use field 4.
-        for (const ins of next) {
-            const name = Object.keys(REG_OPS).find(k => REG_OPS[k] === ins[0]);
-            const base = REG_ALIAS_BASE[name] || name;
-            for (const field of branchTargetFields(base)) {
-                if (oldToNew.has(ins[field])) ins[field] = oldToNew.get(ins[field]);
-            }
-        }
+        // all control-flow operands in one pass. Never keep an old target when
+        // the target PC was removed by fusion.
         let valid = true;
         for (const ins of next) {
             const name = Object.keys(REG_OPS).find(k => REG_OPS[k] === ins[0]);
             const base = REG_ALIAS_BASE[name] || name;
-            if (base === 'FUSED_BIN_JUMP_FALSE' || base === 'FUSED_BIN_JUMP_TRUE') {
-                const target = ins[4];
-                if (!Number.isInteger(target) || target < 1 || target > next.length + 1) {
+            for (const field of branchTargetFields(base)) {
+                const oldTarget = ins[field];
+                const mapped = oldToNew.get(oldTarget);
+                if (mapped === undefined) {
                     valid = false;
                     break;
                 }
+                ins[field] = mapped;
+            }
+            if (!valid) break;
+        }
+
+        if (valid) {
+            for (const ins of next) {
+                const name = Object.keys(REG_OPS).find(k => REG_OPS[k] === ins[0]);
+                const base = REG_ALIAS_BASE[name] || name;
+                for (const field of branchTargetFields(base)) {
+                    const target = ins[field];
+                    if (!Number.isInteger(target) || target < 1 || target > next.length + 1) {
+                        valid = false;
+                        break;
+                    }
+                }
+                if (!valid) break;
             }
         }
         if (!valid) {

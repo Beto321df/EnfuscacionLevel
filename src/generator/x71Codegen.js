@@ -780,11 +780,13 @@ function polymorphDispatchSource(source, map) {
 }
 
 function specializeDispatchSource(source, plan) {
-    const startMarker = "if o==1 then";
+    const startMarker = "local a1,b,c,d=e[2],e[3],e[4],e[5];if o==1 then";
     const endMarker = ";else error('X71 opcode')end;";
     const start = source.indexOf(startMarker);
     const end = source.indexOf(endMarker, start);
-    if (start < 0 || end < start || !plan || !plan.map) return source;
+    if (start < 0 || end < start || !plan || !plan.map) {
+        throw new Error('X7.1: dispatch specialization anchor missing.');
+    }
 
     const body = source.slice(start, end);
     const boundary = /elseif o==[0-9]+(?: or o==[0-9]+)* then/g;

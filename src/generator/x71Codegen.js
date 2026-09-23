@@ -786,8 +786,8 @@ function validateDispatcherPredicates(source) {
     }
     const seen = new Set();
     const duplicate = new Set();
-    for (const match of tail.matchAll(/(?:^|;)elseif o==([0-9]+) then|(?:^|;)if o==([0-9]+) then/g)) {
-        const value = Number(match[1] || match[2]);
+    for (const match of tail.matchAll(/\b(?:if|elseif) o==([0-9]+) then/g)) {
+        const value = Number(match[1]);
         if (seen.has(value)) duplicate.add(value);
         seen.add(value);
     }
@@ -802,7 +802,7 @@ function validateDispatcherStructure(source) {
     const split = source.indexOf(marker);
     if (split < 0) return source;
     const tail = source.slice(split);
-    if (/if o==[0-9]+ then\\s*(?:elseif|else error)/.test(tail)) {
+    if (/\bif o==[0-9]+ then\s*(?:elseif|else error)/.test(tail)) {
         throw new Error('X7.1: dispatcher con handler vacío.');
     }
     return source;

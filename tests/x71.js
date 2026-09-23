@@ -72,8 +72,8 @@ for(let i=0;i<4;i+=1){
     assert.strictEqual(typeof out,'string');
     assert.strictEqual(out.includes('\n'),false,'X7.1 debe ser una sola línea');
     assert(out.startsWith('return(function('),'X7.1 debe usar una carcasa anónima compacta');
-    const shellFunctions = (out.match(/local [A-Za-z]=\(function\(/g) || []).length;
-    assert.strictEqual(shellFunctions,2,'X7.1 debe incluir decoder y VM anónimos');
+    assert(out.includes('=(function(p,a,n,k,w,h)'), 'X7.1 debe incluir un decoder anónimo');
+    assert(out.includes('=(function(P,id,pl,pu,a)'), 'X7.1 debe incluir una VM anónima');
     assert(!out.includes('table.pack'),'X7.1 no debe depender de table.pack');
     assert(!out.includes('table.unpack'),'X7.1 no debe depender de table.unpack');
     assert(out.includes('setmetatable('),'X7.1 ahora usa lazy constants mediante metatable');
@@ -83,13 +83,7 @@ for(let i=0;i<4;i+=1){
     for(const marker of ['Z-Nexus','makeCounter','counterA','transform']){
         assert(!out.includes(marker),'X7.1 no debe exponer un identificador fuente');
     }
-    try {
-        luaparse.parse(out,{wait:false,comments:false,luaVersion:'5.1'});
-    } catch (e) {
-        const at = Number.isInteger(e.index) ? e.index : 2694;
-        console.log('X7.1 SHELL PARSE', e.message, 'AT', at, 'SNIP', out.slice(Math.max(0,at-180),at+360));
-        throw e;
-    }
+    luaparse.parse(out,{wait:false,comments:false,luaVersion:'5.1'});
 }
 
 const a=new CodeGenerator().generate('print("same")',{preset:'strong'});
@@ -140,13 +134,7 @@ assert.strictEqual(guiLikeOut.includes('\n'),false,'X7.1 GUI-like output debe se
 const longOut=new CodeGenerator().generate(longSource,{preset:'strong'});
 assert(longOut.startsWith('return(function('),'X7.1 acepta 5000 líneas');
 assert.strictEqual(longOut.includes('\n'),false,'X7.1 5000-line output sigue en una línea');
-try {
-    luaparse.parse(longOut,{wait:false,comments:false,luaVersion:'5.1'});
-} catch (e) {
-    const at = Number.isInteger(e.index) ? e.index : 2694;
-    console.log('X7.1 LONG PARSE', e.message, 'AT', at, 'SNIP', longOut.slice(Math.max(0,at-160),at+320));
-    throw e;
-}
+luaparse.parse(longOut,{wait:false,comments:false,luaVersion:'5.1'});
 
 // Deep-expression regression: ^ and .. are right-associative. These chains
 // used to recurse through the JS parser/compiler and could overflow V8's stack.

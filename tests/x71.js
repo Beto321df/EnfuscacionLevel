@@ -64,6 +64,10 @@ assert(!aliasPlan.used.includes(40) && !aliasPlan.used.includes(41),'X7.1 used n
 assert.strictEqual(new Set(aliasPlan.usedHandlers).size,aliasPlan.usedHandlers.length,'X7.1 usedHandlers debe ser único');
 assert(!implementation.includes("M_INV"),'X7.1 no debe dejar una inversa de metadata sin declarar');
 assert(!implementation.includes("local PACK=__X71_PACK__"),'X7.1 no debe crear un alias local para el packer compartido');
+assert(implementation.includes("function validateRuntimeBindings(source)"),'X7.1 debe validar bindings de helpers del runtime');
+assert(implementation.includes("const staged = mapping.map"),'X7.1 debe renombrar helpers mediante placeholders inertes');
+
+
 
 const source=`local seed=17
 local state={value=11,enabled=true,name="Z-Nexus"}
@@ -132,6 +136,10 @@ for(let i=0;i<4;i+=1){
     assert(out.includes('setmetatable('),'X7.1 ahora usa lazy constants mediante metatable');
     assert(/local [A-Za-z]=function\(\.\.\.\)/.test(out),'X7.1 debe incluir pack propio');
     assert.strictEqual((out.match(/local [A-Za-z]=function\(\.\.\.\)local z=\{\.\.\.\};z\.n=select\('#',\.\.\.\);return z end;/g) || []).length, 1, 'X7.1 runtime compacto debe compartir un único packer');
+    const modeMath = out.match(/fn\.f\.mode==16 and ([A-Za-z_][A-Za-z0-9_]*) or ([A-Za-z_][A-Za-z0-9_]*)/);
+    assert(modeMath, 'X7.1 debe conservar la selección 16/32 del helper de llamadas');
+    assert(out.includes('local ' + modeMath[1] + '=function('), 'X7.1 helper de multiplicación 16-bit debe existir con el mismo nombre');
+    assert(out.includes('local ' + modeMath[2] + '=function('), 'X7.1 helper de multiplicación 32-bit debe existir con el mismo nombre');
     assert(out.endsWith(',...)'),'X7.1 debe terminar en la invocación anónima');
     assert(!/\bbit32\b|\bbit64\b|\bxor\b/i.test(out),'X7.1 no debe depender de APIs bitwise prohibidas');
     for(const marker of ['Z-Nexus','makeCounter','counterA','transform']){

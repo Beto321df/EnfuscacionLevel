@@ -16,7 +16,7 @@ local result=calc(7,4)
 print(nested.Value,result)`;
 
 const out=new X72().generate(source,{preset:'strong'});
-if(!out.startsWith('return ({p=')) throw new Error('X7.2 runtime shell missing');
+if(!out.startsWith('return(function(')) throw new Error('X7.2 runtime shell missing');
 if(out.includes('\n')) throw new Error('X7.2 runtime must be one line');
 
 const path='/tmp/x72-method.lua';
@@ -45,7 +45,7 @@ const longSource=Array.from({length:1000},(_,i)=>`local cfg${i}={id=${i},enabled
 cfg${i}.value=(${i}*3+${i%7})%101
 if cfg${i}.enabled then cfg${i}.tag=cfg${i}.name else cfg${i}.tag="off" end`).join('\n');
 const longOut=new X72().generate(longSource,{preset:'strong'});
-if(!longOut.startsWith('return ({p=' )||longOut.includes('\n')) throw new Error('X7.2 large runtime generation failed');
+if(!longOut.startsWith('return(function(')||longOut.includes('\n')) throw new Error('X7.2 large runtime generation failed');
 
 console.log(JSON.stringify({
     size:out.length,

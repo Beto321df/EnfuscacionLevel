@@ -1051,6 +1051,25 @@ function x71Loader(program, options = {}) {
     }
 
     if (options.compactRuntime === true) {
+        D = specializeRuntimeSource(D, options);
+        D = compactRuntimeSource(D)
+            .replace("D=function(t)local s=t.p;", "function(p,a,n,k,w,h)local s=p;")
+            .replaceAll("t.a", "a")
+            .replaceAll("t.n", "n")
+            .replaceAll("t.k", "k")
+            .replaceAll("t.s", "w")
+            .replaceAll("t.m", "h");
+
+        O = specializeRuntimeSource(O, options);
+        O = compactRuntimeSource(O)
+            .replace("O=function(t,P,id,pl,pu,a)", "function(P,id,pl,pu,a)")
+            .replace("X=function(t,P,id,pl,pu,a)", "function(X,P,id,pl,pu,a)")
+            .replaceAll("X(t,P,", "X(P,")
+            .replace("local PACK=function(...)local z={...};z.n=select('#',...);return z end;", "")
+            .replaceAll("PACK", "__X71_PACK__");
+
+        // Shell names are selected only after both compact runtimes exist, so
+        // none of the short outer identifiers can collide with D/O locals.
         const shell = makeCompactShellNames([D, O]);
         const shellNames = Object.values(shell);
         D = mangleRuntimeIdentifiers(D, shellNames);

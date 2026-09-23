@@ -1043,13 +1043,9 @@ function validateRuntimeBindings(source) {
     const mode16 = source.match(/fn\.f\.mode==16 and ([A-Za-z_][A-Za-z0-9_]*) or ([A-Za-z_][A-Za-z0-9_]*)/);
     if (!mode16) return source;
 
-    // Helpers pueden emitirse como local function X o local X=function.
-    const declared = name => {
-        const esc = name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
-        return new RegExp(
-            '(?:local\\\\s+function\\\\s+' + esc + '\\\\s*\\\\(|local\\\\s+' + esc + '\\\\s*=\\\\s*function\\\\s*\\\\()'
-        ).test(source);
-    };
+    const declared = name =>
+        source.includes('local function ' + name + '(') ||
+        source.includes('local ' + name + '=function(');
 
     for (const name of [mode16[1], mode16[2]]) {
         if (!declared(name)) {

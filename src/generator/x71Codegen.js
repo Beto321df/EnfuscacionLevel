@@ -1063,7 +1063,7 @@ function x71Loader(program, options = {}) {
         O = specializeRuntimeSource(O, options);
         O = compactRuntimeSource(O)
             .replace("O=function(t,P,id,pl,pu,a)", "function(P,id,pl,pu,a)")
-            .replace("X=function(t,P,id,pl,pu,a)", "function(X,P,id,pl,pu,a)")
+            .replace("X=function(t,P,id,pl,pu,a)", "X=function(P,id,pl,pu,a)")
             .replaceAll("X(t,P,", "X(P,")
             .replace("local PACK=function(...)local z={...};z.n=select('#',...);return z end;", "")
             .replaceAll("PACK", "__X71_PACK__");

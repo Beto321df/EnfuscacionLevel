@@ -586,6 +586,7 @@ function buildContainer(program, options = {}) {
     const s = seal(bytes);
     u32(bytes, s);
     return { bytes, dispatchPlan };
+}
 
 function validateContainer(bytes) {
     let p = 0;

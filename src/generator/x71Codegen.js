@@ -791,7 +791,9 @@ function compactRuntimeSource(source) {
 }
 
 function makeCompactShellNames() {
-    const pool = shuffle("ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz".split(""));
+    const pool = shuffle("ABCD EFG JKLMN QRS TU VWXY Zabcd ef gi jk lm nop qrst u v w x y z".replace(/\\s+/g,'').split(""));
+    const reserved = new Set(["n","h","P","v","z"]);
+    for (let i = pool.length - 1; i >= 0; i -= 1) if (reserved.has(pool[i])) pool.splice(i, 1);
     const take = () => pool.pop();
     return {
         payload: take(),

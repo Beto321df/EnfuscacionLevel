@@ -276,10 +276,9 @@ function buildDispatchPlan(program) {
     }
     const semantics = Array.from(used).sort((a, b) => a - b);
     if (!semantics.length) throw new Error('X7.1: programa sin instrucciones.');
-    const shuffled = shuffle(semantics);
+    const handlerIds = shuffle(Array.from({ length: OP_COUNT }, (_, i) => i + 1));
     const map = {};
-    for (let i = 0; i < shuffled.length; i += 1) map[shuffled[i]] = i + 1;
-    return { used: semantics, map, count: semantics.length };
+    for (let i = 0; i < semantics.length; i += 1) map[semantics[i]] = handlerIds[i];
 }
 
 function buildContainer(program, options = {}) {

@@ -781,36 +781,11 @@ function polymorphDispatchSource(source, map) {
 }
 
 function specializeDispatchSource(source, plan) {
-    const startMarker = "local a1,b,c,d=e[2],e[3],e[4],e[5];if o==1 then";
-    const endMarker = "else error('X71 opcode')end end;";
-    const start = source.indexOf(startMarker);
-    const end = source.indexOf(endMarker, start);
-    if (start < 0 || end < start || !plan || !plan.map) {
-        throw new Error('X7.1: dispatch specialization anchor missing.');
-    }
-
-    const body = source.slice(start, end);
-    const boundary = /elseif o==[0-9]+(?: or o==[0-9]+)* then/g;
-    const cuts = [0];
-    let match;
-    while ((match = boundary.exec(body)) !== null) cuts.push(match.index);
-
-    const cases = [];
-    for (let i = 0; i < cuts.length; i += 1) {
-        const seg = body.slice(cuts[i], i + 1 < cuts.length ? cuts[i + 1] : body.length);
-        const thenAt = seg.indexOf(" then");
-        if (thenAt < 0) continue;
-        const cond = seg.slice(0, thenAt);
-        const ops = (cond.match(/[0-9]+/g) || []).map(Number);
-        const live = ops.filter(op => plan.map[op]);
-        if (!live.length) continue;
-        const handlerCond = live.map(op => "o==" + plan.map[op]).join(" or ");
-        const payload = seg.slice(thenAt + 5);
-        cases.push((cases.length ? "elseif " : "if ") + handlerCond + " then" + payload);
-    }
-
-    if (!cases.length) return source;
-    return source.slice(0, start) + cases.join(' ') + endMarker + source.slice(end + endMarker.length);
+    // Only remap the existing dispatcher predicates. Do not attempt to split
+    // the generated Lua with a regex: nested elseif clauses belong to handler
+    // bodies and must never become top-level VM cases.
+    if (!plan || !plan.map) return source;
+    return polymorphDispatchSource(source, plan.map);
 }
 
 function makeShellNames() {

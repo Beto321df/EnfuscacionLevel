@@ -407,37 +407,61 @@ function buildEmissionPlan(program, options = {}) {
             candidate.functions = lowered.functions;
             candidate.metadata = lowered.metadata;
 
-            // Comparison fusion is an optimization, never a prerequisite for
-            // correctness. Validate the fused CFG immediately and fall back to
-            // the unfused register program if relocation produced a bad target.
+            // Comparison fusion is optional. Treat every verifier failure caused by
+            // a fused branch as a transactional optimization failure and continue
+            // with the already-correct unfused register program.
             const beforeFusion = cloneProgram(candidate);
+            let fusionReason = null;
             try {
                 fuseRegisterComparisons(candidate);
                 verifyProgram(candidate, { backend: 'register' });
             } catch (error) {
-                // Fusion is strictly an optimization. If relocation/fusion
-                // creates an invalid target, discard only the fused form and
-                // keep the already-valid register program.
+                fusionReason = String(error && error.message || error);
                 candidate.functions = beforeFusion.functions;
                 candidate.metadata = {
                     ...(beforeFusion.metadata || {}),
                     registerFusions: {
                         comparisonJumps: 0,
                         fallback: 'unfused',
-                        reason: String(error && error.message || error)
+                        reason: fusionReason
                     }
                 };
                 verifyProgram(candidate, { backend: 'register' });
             }
 
-            permuteRegisterFile(candidate, options.registers || {});
-            diversifyRegisterIsa(candidate, options.isa || {});
-            validateRegisterProgram(candidate);
-            verifyProgram(candidate, { backend: 'register' });
-            candidate.metadata = { ...(candidate.metadata || {}), analysisBeforePacking: analyzeProgram(candidate) };
-            encodeRegisterControlTargets(candidate, options.controlTargets || {});
-            return candidate;
+            const finish = target => {
+                permuteRegisterFile(target, options.registers || {});
+                diversifyRegisterIsa(target, options.isa || {});
+                validateRegisterProgram(target);
+                verifyProgram(target, { backend: 'register' });
+                target.metadata = { ...(target.metadata || {}), analysisBeforePacking: analyzeProgram(target) };
+                encodeRegisterControlTargets(target, options.controlTargets || {});
+                return target;
+            };
+
+            try {
+                return finish(candidate);
+            } catch (error) {
+                // A second guard handles the case where register/ISA transforms
+                // expose a fused target inconsistency only after those transforms.
+                // Restore the pristine post-registerization form and finish it
+                // without comparison fusion. No other protection layer is removed.
+                const message = String(error && error.message || error);
+                if (!/fused jump pc/i.test(message)) throw error;
+
+                const unfused = cloneProgram(beforeFusion);
+                unfused.metadata = {
+                    ...(unfused.metadata || {}),
+                    registerFusions: {
+                        comparisonJumps: 0,
+                        fallback: 'post-transform-unfused',
+                        reason: message
+                    }
+                };
+                return finish(unfused);
+            }
         };
+
 
         const isRecoverableCfgConflict = error =>
             /merge de stack incompatible|stack underflow en pc|registerizer: stack underflow|edge stack mismatch/i.test(

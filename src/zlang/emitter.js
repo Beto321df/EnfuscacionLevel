@@ -411,16 +411,23 @@ function buildEmissionPlan(program, options = {}) {
             // correctness. Validate the fused CFG immediately and fall back to
             // the unfused register program if relocation produced a bad target.
             const beforeFusion = cloneProgram(candidate);
-            fuseRegisterComparisons(candidate);
             try {
+                fuseRegisterComparisons(candidate);
                 verifyProgram(candidate, { backend: 'register' });
             } catch (error) {
-                if (!/fused jump/i.test(String(error && error.message || error))) throw error;
+                // Fusion is strictly an optimization. If relocation/fusion
+                // creates an invalid target, discard only the fused form and
+                // keep the already-valid register program.
                 candidate.functions = beforeFusion.functions;
                 candidate.metadata = {
                     ...(beforeFusion.metadata || {}),
-                    registerFusions: { comparisonJumps: 0, fallback: 'unfused' }
+                    registerFusions: {
+                        comparisonJumps: 0,
+                        fallback: 'unfused',
+                        reason: String(error && error.message || error)
+                    }
                 };
+                verifyProgram(candidate, { backend: 'register' });
             }
 
             permuteRegisterFile(candidate, options.registers || {});

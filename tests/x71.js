@@ -134,7 +134,13 @@ assert.strictEqual(guiLikeOut.includes('\n'),false,'X7.1 GUI-like output debe se
 const longOut=new CodeGenerator().generate(longSource,{preset:'strong'});
 assert(longOut.startsWith('return(function('),'X7.1 acepta 5000 líneas');
 assert.strictEqual(longOut.includes('\n'),false,'X7.1 5000-line output sigue en una línea');
-luaparse.parse(longOut,{wait:false,comments:false,luaVersion:'5.1'});
+try {
+    luaparse.parse(longOut,{wait:false,comments:false,luaVersion:'5.1'});
+} catch (e) {
+    const at = Number.isInteger(e.index) ? e.index : 2694;
+    console.log('X7.1 LONG PARSE', e.message, 'AT', at, 'SNIP', longOut.slice(Math.max(0,at-160),at+320));
+    throw e;
+}
 
 // Deep-expression regression: ^ and .. are right-associative. These chains
 // used to recurse through the JS parser/compiler and could overflow V8's stack.

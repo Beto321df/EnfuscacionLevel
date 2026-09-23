@@ -127,9 +127,12 @@ module.exports = async function handler(req, res) {
             const isProtected =
                 protectedCode.startsWith('return setmetatable({p=') ||
                 protectedCode.startsWith('return ({p=') ||
-                (protectedCode.startsWith('return(function(') &&
-                    (protectedCode.match(/local [A-Za-z]=\(function\(/g) || []).length >= 2 &&
-                    protectedCode.endsWith(',...'));
+                (
+                    protectedCode.startsWith('return(function(') &&
+                    protectedCode.includes('=\(function(') &&
+                    protectedCode.includes('return v.v[1]') &&
+                    /}\([^)]*,\.\.\.\)$/.test(protectedCode)
+                );
             if (!isProtected) {
                 return res.status(500).json({
                     ok: false,

@@ -349,7 +349,7 @@ function buildContainer(program, options = {}) {
         const fn = C.functions[i];
         if (fn.params.length > 65535 || fn.upvalues.length > 65535 || fn.iteratorLayouts.length > 65535) throw new Error('X7.1: metadata de función fuera de rango.');
         const k = rand(0x10000, 0xFFFFFFFF) >>> 0;
-        const st = (rand(1, 0xFFFF) | 1) >>> 0;
+        const st = (rand(1, Math.max(1, maxOperand)) | 1) >>> 0;
         // X7.1 metadata must be self-describing: persist both mask parameters.
         u32(metaSection, k);
         u32(metaSection, st);
@@ -382,13 +382,14 @@ function buildContainer(program, options = {}) {
         const packed16 = !packed12 && canPack16(fn, options);
         const layout = packed12 ? 12 : (packed16 ? 16 : 32);
         let writeOperand;
+        let flushOperand = () => {};
         let transform;
         let modulus;
         let oddKey;
         let invert;
         if (packed12) {
             const state = { acc: 0, bits: 0 };
-            writeOperand = value => {
+            writeOperand = (_out, value) => {
                 value = mod12(value);
                 state.acc += value * (2 ** state.bits);
                 state.bits += 12;
@@ -398,7 +399,7 @@ function buildContainer(program, options = {}) {
                     state.bits -= 8;
                 }
             };
-            const flushOperand = () => {
+            flushOperand = () => {
                 if (state.bits > 0) {
                     codeSection.push(state.acc % 256);
                     state.acc = 0;
@@ -409,8 +410,6 @@ function buildContainer(program, options = {}) {
             modulus = 4096;
             oddKey = randomOdd12;
             invert = invOdd12;
-            // flushed below at byte-aligned boundaries
-            fn.__x71FlushOperand = flushOperand;
         } else {
             writeOperand = packed16 ? u16 : u32;
             transform = packed16 ? mul16 : mul32;
@@ -418,19 +417,20 @@ function buildContainer(program, options = {}) {
             oddKey = packed16 ? randomOdd16 : randomOdd32;
             invert = packed16 ? invOdd16 : invOdd32;
         }
+        const maxOperand = modulus - 1;
 
         const order = shuffle([1, 2, 3, 4]);
         const pcMul = oddKey();
         const pcInv = invert(pcMul);
-        const pcAdd = rand(0, packed16 ? 0xFFFF : 0xFFFFFFFF) >>> 0;
+        const pcAdd = rand(0, maxOperand) >>> 0;
         const fnMul = oddKey();
-        const fnAdd = rand(0, packed16 ? 0xFFFF : 0xFFFFFFFF) >>> 0;
+        const fnAdd = rand(0, maxOperand) >>> 0;
         const cMul = oddKey();
-        const cAdd = rand(0, packed16 ? 0xFFFF : 0xFFFFFFFF) >>> 0;
+        const cAdd = rand(0, maxOperand) >>> 0;
         const lMul = encodeLocalOperands ? oddKey() : 1;
-        const lAdd = encodeLocalOperands ? (rand(0, packed16 ? 0xFFFF : 0xFFFFFFFF) >>> 0) : 0;
+        const lAdd = encodeLocalOperands ? (rand(0, maxOperand) >>> 0) : 0;
         const feedbackKeys = encodeOperandFeedback
-            ? Array.from({ length: 4 }, () => rand(0, packed16 ? 0xFFFF : 0xFFFFFFFF) >>> 0)
+            ? Array.from({ length: 4 }, () => rand(0, maxOperand) >>> 0)
             : [0, 0, 0, 0];
         const targetTokens = encodeTargetTokens ? (() => {
             if (packed16) return [0, ...shuffle(Array.from({ length: fn.code.length }, (_, n) => n + 1))];
@@ -460,10 +460,10 @@ function buildContainer(program, options = {}) {
         }
         if (encodeTargetTokens) {
             for (let logicalPc = 1; logicalPc <= fn.code.length; logicalPc += 1) {
-                writeOperand(targetTokens[logicalPc]);
+                writeOperand(codeSection, targetTokens[logicalPc]);
             }
         }
-        if (fn.__x71FlushOperand) fn.__x71FlushOperand();
+        flushOperand();
 
         const physicalOrder = encodeInstructionRoute
             ? shuffle(Array.from({ length: fn.code.length }, (_, n) => n + 1))
@@ -477,18 +477,18 @@ function buildContainer(program, options = {}) {
                 writeOperand(codeSection, logicalToPhysical[logicalPc]);
             }
         }
-        if (fn.__x71FlushOperand) fn.__x71FlushOperand();
+        flushOperand();
 
         for (const logicalPc of physicalOrder) codeSection.push(fn.code[logicalPc - 1][0] & 255);
         for (let q = 1; q <= OP_COUNT; q += 1) codeSection.push(opcodeMaps[i].decode[q] || q);
-        if (fn.__x71FlushOperand) fn.__x71FlushOperand();
+        flushOperand();
 
         const planes = [[], [], [], []];
         const planeKeys = [];
         const planeSteps = [];
         for (let p = 0; p < 4; p += 1) {
-            planeKeys[p] = rand(0, packed16 ? 0xFFFF : 0xFFFFFFFF) >>> 0;
-            planeSteps[p] = (rand(1, 0xFFFF) | 1) >>> 0;
+            planeKeys[p] = rand(0, maxOperand) >>> 0;
+            planeSteps[p] = (rand(1, Math.max(1, maxOperand)) | 1) >>> 0;
             writeOperand(codeSection, planeKeys[p]);
             writeOperand(codeSection, planeSteps[p]);
         }
@@ -534,7 +534,7 @@ function buildContainer(program, options = {}) {
                 previous = v;
             }
         }
-        if (fn.__x71FlushOperand) fn.__x71FlushOperand();
+        flushOperand();
     }
 
     // Section D: a small verifier ledger. It proves the count/shape without exposing source metadata.

@@ -15,12 +15,6 @@ function boundedTargetCount(candidateCount, probability, budget) {
     const p = Math.max(0, Math.min(1, Number(probability) || 0));
     return Math.min(budget, Math.max(0, Math.round(candidateCount * p)));
 }
-function stableRank(value) {
-    return crypto.createHash('sha256').update(String(value)).digest().readUInt32BE(0);
-}
-function stableCandidateKey(item) {
-    return item[0] + ':' + item[2] + ':' + item[3];
-}
 
 function targetFields(ins) {
     switch (ins[0]) {
@@ -60,8 +54,7 @@ function splitStringConstant(program, index, cache, maxShards) {
     if (!constant || constant.type !== 1) return null;
     const value = String(constant.value);
     if (value.length < 8) return null;
-    const shardRange = Math.max(1, Math.min(maxShards, value.length) - 1);
-    const shardCount = Math.min(maxShards, 2 + (stableRank(value) % shardRange));
+    const shardCount = Math.max(2, Math.min(maxShards, value.length));
     const cuts = [];
     let remaining = value.length;
     for (let i = 0; i < shardCount - 1; i += 1) {
@@ -87,7 +80,7 @@ function splitNumberConstant(program, index, cache) {
     const value = Number(constant.value);
     if (!Number.isSafeInteger(value) || Math.abs(value) > 0x3fffffff) return null;
     const limit = Math.min(32, Math.max(1, Math.abs(value)));
-    const delta = value === 0 ? 1 : 1 + (stableRank(String(value)) % limit);
+    const delta = value === 0 ? 1 : randomInt(1, limit);
     const left = value - delta;
     const right = delta;
     return [
@@ -144,13 +137,11 @@ function diversifyConstants(program, options = {}) {
 
     const targetStrings = boundedTargetCount(stringCandidates.length, stringChance, stringBudget);
     const targetNumbers = boundedTargetCount(numberCandidates.length, numberChance, numberBudget);
-    const selectStable = (candidates, count) => candidates
-        .slice()
-        .sort((a, b) => stableRank(stableCandidateKey(a)) - stableRank(stableCandidateKey(b)))
-        .slice(0, count);
+    const selectRandom = (candidates, count) => shuffle(candidates).slice(0, count);
+    const candidateKey = item => item[0] + ':' + item[2] + ':' + item[3];
 
-    const selectedStrings = new Set(selectStable(stringCandidates, targetStrings).map(stableCandidateKey));
-    const selectedNumbers = new Set(selectStable(numberCandidates, targetNumbers).map(stableCandidateKey));
+    const selectedStrings = new Set(selectRandom(stringCandidates, targetStrings).map(candidateKey));
+    const selectedNumbers = new Set(selectRandom(numberCandidates, targetNumbers).map(candidateKey));
 
     for (let f = 0; f < program.functions.length; f += 1) {
         const fn = program.functions[f];

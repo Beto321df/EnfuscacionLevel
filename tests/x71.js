@@ -102,6 +102,7 @@ for(let i=0;i<4;i+=1){
     assert(!out.includes('dbg'),'X7.1 output compacto no debe filtrar estado de debug');
     assert(out.includes('setmetatable('),'X7.1 ahora usa lazy constants mediante metatable');
     assert(/local [A-Za-z]=function\(\.\.\.\)/.test(out),'X7.1 debe incluir pack propio');
+    assert.strictEqual((out.match(/local [A-Za-z]=function\(\.\.\.\)local z=\{\.\.\.\};z\.n=select\('#',\.\.\.\);return z end;/g) || []).length, 1, 'X7.1 runtime compacto debe compartir un único packer');
     assert(out.endsWith(',...)'),'X7.1 debe terminar en la invocación anónima');
     assert(!/\bbit32\b|\bbit64\b|\bxor\b/i.test(out),'X7.1 no debe depender de APIs bitwise prohibidas');
     for(const marker of ['Z-Nexus','makeCounter','counterA','transform']){

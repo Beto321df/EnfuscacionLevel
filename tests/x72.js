@@ -191,6 +191,10 @@ print(state.name, final[1], final[2], final.sum, final.valid, nested.alpha.tag)`
 const exactOut=new X72().generate(exactSource,{preset:'maximum'});
 assert(exactOut.startsWith('return(function('),'X7.2 exact benchmark debe generarse');
 assert.strictEqual(exactOut.includes('\\n'),false,'X7.2 exact benchmark debe seguir en una sola línea');
+const exactModeMath = exactOut.match(/fn\.f\.mode==16 and ([A-Za-z_][A-Za-z0-9_]*) or ([A-Za-z_][A-Za-z0-9_]*)/);
+assert(exactModeMath,'X7.2 runtime debe conservar la selección 16/32 del helper de llamadas');
+assert(exactOut.includes('local ' + exactModeMath[1] + '=function('),'X7.2 helper 16-bit debe existir con el mismo identificador que usa la VM');
+assert(exactOut.includes('local ' + exactModeMath[2] + '=function('),'X7.2 helper 32-bit debe existir con el mismo identificador que usa la VM');
 
 const a=new X72().generate(`local x=10
 local s="abcdefghijklmnop"

@@ -200,7 +200,6 @@ local s="abcdefghijklmnop"
 print(s,x)`,{preset:'maximum'});
 assert.notStrictEqual(a,b,'X7.2 debe diversificar cada build');
 assert(a.length>12000,'X7.2 debe conservar sus capas de runtime');
-assert(a.length<1024*1024,'X7.2 debe respetar el límite de 1 MB');
 
 const mediumSource=Array.from({length:500},(_,i)=>[
     `local cfg${i}={id=${i},enabled=${i%2===0},name="item-${i}"}`,

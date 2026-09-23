@@ -279,6 +279,7 @@ function buildDispatchPlan(program) {
     const handlerIds = shuffle(Array.from({ length: OP_COUNT }, (_, i) => i + 1));
     const map = {};
     for (let i = 0; i < semantics.length; i += 1) map[semantics[i]] = handlerIds[i];
+    return { map, handlerIds, semantics };
 }
 
 function buildContainer(program, options = {}) {

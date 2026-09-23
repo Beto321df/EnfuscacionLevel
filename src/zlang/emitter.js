@@ -412,8 +412,19 @@ function buildEmissionPlan(program, options = {}) {
             // with the already-correct unfused register program.
             const beforeFusion = cloneProgram(candidate);
             let fusionReason = null;
+            const useComparisonFusion = options.enableComparisonFusion !== false;
             try {
-                fuseRegisterComparisons(candidate);
+                if (useComparisonFusion) {
+                    fuseRegisterComparisons(candidate);
+                } else {
+                    candidate.metadata = {
+                        ...(candidate.metadata || {}),
+                        registerFusions: {
+                            comparisonJumps: 0,
+                            fallback: 'disabled-for-runtime'
+                        }
+                    };
+                }
                 verifyProgram(candidate, { backend: 'register' });
             } catch (error) {
                 fusionReason = String(error && error.message || error);

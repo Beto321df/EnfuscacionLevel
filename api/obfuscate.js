@@ -1,5 +1,4 @@
 const CodeGenerator = require('../src/generator/visualCodegen.js');
-const { ALPHABET, BASE } = require('../src/zlang/codec');
 const { wrapVisual } = require('../src/zlang/visualTransport');
 const { buildCompatLoader } = require('../src/zlang/compatLoader');
 const { resolvePreset } = require('../src/zlang/presets');
@@ -42,6 +41,17 @@ module.exports = async (req, res) => {
         }
         const obfuscatedCode=mode==='x7-register' ? generated : wrapVisual(generated);
         if(typeof obfuscatedCode!=='string'||!obfuscatedCode.trim())throw new Error('Z no generó código protegido.');
-        return res.status(200).json({success:true,engine:'Z-Lang 3',mode,format:mode==='x7-register' ? 'X7.2 hardened layered register VM' : 'Z3 visual compatibility loader',payloadAlphabet:'mixed-cjk-digit-symbol-random-alias',payloadAlphabetValue:ALPHABET,alphabetBase:BASE,visualLineWidth:19,visualSeparator:'/ ',sourceReconstruction:mode==='zlang3-visual-compat',strengthPreset:preset.name,directBytecodeExecution,singleLine:true,code:obfuscatedCode,obfuscatedCode});
+        return res.status(200).json({
+            success:true,
+            engine:'Z-Lang 3',
+            mode,
+            format:mode==='x7-register' ? 'X7.2 hardened register VM' : 'Z3 visual compatibility loader',
+            sourceReconstruction:mode==='zlang3-visual-compat',
+            strengthPreset:preset.name,
+            directBytecodeExecution,
+            singleLine:true,
+            code:obfuscatedCode,
+            obfuscatedCode
+        });
     } catch(error) { const message=error instanceof Error?error.message:String(error); console.error('Z3 obfuscation failure:',error); return res.status(500).json({success:false,error:message||'Error interno de obfuscación.'}); }
 };

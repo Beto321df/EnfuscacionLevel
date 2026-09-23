@@ -530,7 +530,7 @@ function buildContainer(program, options = {}) {
             for (let j = 0; j < planes[p].length; j += 1) {
                 const feedback = encodeOperandFeedback ? transform(previous, feedbackKeys[p]) : 0;
                 const v = (planes[p][j] + planeKeys[p] + j * planeSteps[p] + feedback) % modulus;
-                writeOperand(v);
+                writeOperand(codeSection, v);
                 previous = v;
             }
         }

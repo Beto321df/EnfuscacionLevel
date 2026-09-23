@@ -93,6 +93,27 @@ for(let i=0;i<4;i+=1){
     }
 }
 
+// Comparison-jump fusion regression: randomized CFG relocation must never
+// surface an invalid fused target. Fusion is an optimization and the emitter
+// should transparently fall back to the unfused register program when needed.
+const branchStress = `local x=0
+for i=1,40 do
+    if i%3==0 then
+        x=x+i
+    elseif i%5==0 then
+        x=x-i
+    else
+        x=x+(i%7)
+    end
+    if x%11==0 then x=x+2 end
+end
+print(x)`;
+for(let i=0;i<12;i+=1){
+    const out=new CodeGenerator().generate(branchStress,{preset:'strong'});
+    assert(out.startsWith('return(function('),'X7.1 branch-stress debe generar');
+    assert.strictEqual(out.includes('fused jump pc'),false,'X7.1 no debe filtrar errores internos de fusion');
+}
+
 const a=new CodeGenerator().generate('print("same")',{preset:'strong'});
 const b=new CodeGenerator().generate('print("same")',{preset:'strong'});
 assert.notStrictEqual(a,b,'X7.1 debe diversificar cada build');

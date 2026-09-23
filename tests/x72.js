@@ -224,6 +224,7 @@ assert(fourFortyOut.length<=100*1024,'X7.2 440-line output should stay at or bel
 assert(fourFortyOut.startsWith('return(function('),'X7.2 440-line benchmark debe generar');
 assert.strictEqual(fourFortyOut.includes('\\n'),false,'X7.2 440-line benchmark debe seguir en una línea');
 luaparse.parse(fourFortyOut,{wait:false,comments:false,luaVersion:'5.1'});
+console.log('X7.2 SIZE 440/500', fourFortyOut.length, mediumOut.length);
 
 const longSource=Array.from({length:4999},(_,i)=>`local v${i}=${i}`).join('\n')+'\nprint(v4998)';
 const longOut=new X72().generate(longSource,{preset:'strong'});

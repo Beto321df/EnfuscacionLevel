@@ -76,8 +76,8 @@ for(let i=0;i<2;i+=1){
     const out=new X72().generate(source,{preset:'maximum'});
     assert.strictEqual(out.includes('\\n'),false,'X7.2 debe ser una sola línea');
     assert(out.startsWith('return(function('),'X7.2 debe reutilizar la carcasa anónima compacta');
-    const shellFunctions = (out.match(/local [A-Za-z]=\(function\(/g) || []).length;
-    assert.strictEqual(shellFunctions,2,'X7.2 debe tener decoder y VM anónimos');
+    assert(out.includes('=(function(p,a,n,k,w,h)'), 'X7.2 debe incluir un decoder anónimo');
+    assert(out.includes('=(function(P,id,pl,pu,a)'), 'X7.2 debe incluir una VM anónima');
     assert(!out.includes('D=function'),'X7.2 no debe fijar el nombre del decoder');
     assert(!out.includes('O=function'),'X7.2 no debe fijar el nombre de la VM');
     assert(!out.includes('R=function'),'X7.2 no debe fijar el nombre del runner');

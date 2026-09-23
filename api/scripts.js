@@ -32,8 +32,7 @@ module.exports = async function handler(req, res) {
             return res.status(200).json({
                 ok: true,
                 scripts: {},
-                authenticated: false,
-                msg: 'Usuario requerido para cargar scripts.'
+                authenticated: false
             });
         }
         try {
@@ -128,9 +127,9 @@ module.exports = async function handler(req, res) {
             const isProtected =
                 protectedCode.startsWith('return setmetatable({p=') ||
                 protectedCode.startsWith('return ({p=') ||
-                (protectedCode.startsWith('return({') &&
-                    protectedCode.includes('=(function') &&
-                    /}\):[A-Za-z]\(\.\.\.\)$/.test(protectedCode));
+                (protectedCode.startsWith('return(function(') &&
+                    (protectedCode.match(/local [A-Za-z]=\(function\(/g) || []).length >= 2 &&
+                    protectedCode.endsWith(',...'));
             if (!isProtected) {
                 return res.status(500).json({
                     ok: false,

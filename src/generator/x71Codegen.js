@@ -271,24 +271,33 @@ function buildDispatchPlan(program) {
     for (const fn of (program.functions || [])) {
         for (const raw of (fn.code || [])) {
             const sem = semanticOp(fn, raw[0]);
-            if (Number.isInteger(sem) && sem >= 1 && sem <= OP_COUNT) used.add(sem);
+            if (Number.isInteger(sem) && sem >= 1 && sem <= OP_COUNT && !REG_ALIAS_BASE[OP_NAME[sem]]) {
+                used.add(sem);
+            }
         }
     }
 
-    // The generated dispatcher only contains canonical semantic handlers.
-    // Alias opcodes are canonicalized before packing and must never occupy a
-    // second dispatcher predicate. Build the handler permutation across every
-    // canonical handler, not just handlers used by the current program;
-    // otherwise an unused predicate can retain a numeric ID randomly assigned
-    // to a different handler, producing duplicate/unreachable predicates.
+    // Canonical semantic operations are the only entries that may become
+    // dispatcher handlers. Public/runtime opcode IDs are randomized from the
+    // full ISA, but only canonical handlers referenced by this program receive
+    // handler IDs that will actually be emitted into fn.q.
     const semantics = Array.from({ length: OP_COUNT }, (_, i) => i + 1)
         .filter(id => !REG_ALIAS_BASE[OP_NAME[id]]);
-    const handlerIds = shuffle(Array.from({ length: OP_COUNT }, (_, i) => i + 1));
+    if (!used.size) throw new Error('X7.1: programa sin instrucciones.');
+
+    const handlerIds = shuffle(Array.from({ length: OP_COUNT }, (_, i) => i + 1))
+        .slice(0, semantics.length);
     const map = {};
     for (let i = 0; i < semantics.length; i += 1) map[semantics[i]] = handlerIds[i];
 
-    if (!used.size) throw new Error('X7.1: programa sin instrucciones.');
-    return { map, handlerIds, semantics, used: Array.from(used).sort((a, b) => a - b) };
+    const usedSemantics = Array.from(used).sort((a, b) => a - b);
+    const usedHandlers = usedSemantics.map(sem => map[sem]);
+    if (usedHandlers.some(id => !Number.isInteger(id)) ||
+        new Set(usedHandlers).size !== usedHandlers.length) {
+        throw new Error('X7.1: plan de dispatcher inválido.');
+    }
+
+    return { map, handlerIds, semantics, used: usedSemantics, usedHandlers };
 }
 
 function buildContainer(program, options = {}) {
@@ -823,62 +832,80 @@ function polymorphDispatchSource(source, map) {
     return validateDispatcherStructure(validateDispatcherPredicates(head + body));
 }
 
-function pruneDispatcherHandlers(source, used) {
+function parseDispatcherSource(source) {
     const marker = 'local X;local F=';
     const split = source.indexOf(marker);
-    if (split < 0 || !used || !used.size) return source;
+    if (split < 0) return null;
 
     const tail = source.slice(split);
     const start = tail.indexOf('if o==');
     const endMarker = "else error('X71 opcode')end;return";
     const end = tail.indexOf(endMarker, start);
-    if (start < 0 || end < 0) return source;
+    if (start < 0 || end < 0) throw new Error('X7.1: no se encontró el cuerpo del dispatcher.');
 
     const chain = tail.slice(start, end);
-    const first = chain.match(/^if o==([0-9]+) then/);
-    if (!first) return source;
-
+    const branches = new Map();
     const branchRe = /\b(?:if|elseif) o==([0-9]+) then/g;
-    const branches = [];
-    let match;
-    while ((match = branchRe.exec(chain)) !== null) {
-        branches.push({
-            id: Number(match[1]),
-            start: match.index,
-            bodyStart: match.index + match[0].length
-        });
-    }
-    if (!branches.length) return source;
+    const matches = Array.from(chain.matchAll(branchRe));
+    if (!matches.length) throw new Error('X7.1: dispatcher sin handlers.');
 
-    const kept = [];
-    for (let i = 0; i < branches.length; i += 1) {
-        const branch = branches[i];
-        const bodyEnd = i + 1 < branches.length ? branches[i + 1].start : chain.length;
-        const body = chain.slice(branch.bodyStart, bodyEnd);
-        if (used.has(branch.id)) {
-            kept.push({ id: branch.id, body: body.trim() });
+    for (let i = 0; i < matches.length; i += 1) {
+        const id = Number(matches[i][1]);
+        if (branches.has(id)) throw new Error('X7.1: dispatcher plantilla duplicada: ' + id);
+        const bodyStart = matches[i].index + matches[i][0].length;
+        const bodyEnd = i + 1 < matches.length ? matches[i + 1].index : chain.length;
+        const body = chain.slice(bodyStart, bodyEnd).trim();
+        if (!body) throw new Error('X7.1: dispatcher plantilla vacía: ' + id);
+        branches.set(id, body);
+    }
+
+    return {
+        prefix: source.slice(0, split + start),
+        suffix: ' ' + tail.slice(end),
+        branches
+    };
+}
+
+function buildSpecializedDispatcherSource(source, plan) {
+    if (!plan || !plan.map) return source;
+    const parsed = parseDispatcherSource(source);
+    if (!parsed) return source;
+
+    const used = Array.from(new Set(plan.used || [])).filter(Number.isInteger);
+    if (!used.length) throw new Error('X7.1: dispatcher sin handlers usados.');
+
+    const emitted = new Set();
+    const chain = used.map((semantic, index) => {
+        const body = parsed.branches.get(semantic);
+        const handlerId = Number(plan.map[semantic]);
+        if (!body) throw new Error('X7.1: falta handler semántico ' + semantic);
+        if (!Number.isInteger(handlerId) || handlerId < 1 || handlerId > OP_COUNT) {
+            throw new Error('X7.1: handler semántico sin ID ' + semantic);
         }
-    }
-    if (!kept.length) throw new Error('X7.1: dispatcher sin handlers usados.');
-
-    const rebuilt = kept.map((branch, i) => {
-        const head = i === 0 ? 'if o==' : 'elseif o==';
-        // NOP is semantically empty. Keep the handler addressable but make the
-        // branch explicit so the compact dispatcher never contains an empty
-        // clause.
-        const body = branch.body || 'pc=pc';
-        return head + branch.id + ' then ' + body;
+        if (emitted.has(handlerId)) {
+            throw new Error('X7.1: handler ID duplicado ' + handlerId);
+        }
+        emitted.add(handlerId);
+        return (index === 0 ? 'if o==' : 'elseif o==') + handlerId + ' then ' + body;
     }).join(' ');
 
-    return source.slice(0, split + start) +
-        rebuilt +
-        ' ' + tail.slice(end);
+    return validateDispatcherStructure(
+        validateDispatcherPredicates(parsed.prefix + chain + parsed.suffix)
+    );
+}
+
+function pruneDispatcherHandlers(source, used) {
+    if (!used || !used.size) return source;
+    const map = {};
+    for (const semantic of used) map[semantic] = semantic;
+    return buildSpecializedDispatcherSource(source, {
+        map,
+        used: Array.from(used)
+    });
 }
 
 function specializeDispatchSource(source, plan) {
-    if (!plan || !plan.map) return source;
-    const pruned = pruneDispatcherHandlers(source, new Set(plan.used || []));
-    return polymorphDispatchSource(pruned, plan.map);
+    return buildSpecializedDispatcherSource(source, plan);
 }
 
 function makeShellNames() {
@@ -1052,10 +1079,8 @@ function x71Loader(program, options = {}) {
         const newEnv = "local E={RE,FE,EE,_G,GE};local G=E[1]or E[2]or E[3]or E[4]or E[5];local GG=function(k)for i=1,#E do local e=E[i];local v=e and e[k];if v~=nil then return v end end;error('')end;local SG=function(k,v)if G then G[k]=v end end;";
         O = O.replace(oldEnv, newEnv);
     }
-    if (options.polymorphicDispatch === true && options.compactRuntime !== true) {
-        O = polymorphDispatchSource(O, makeDispatchTokens());
-    }
-
+    // The dispatch plan already randomizes handler IDs. Applying a second textual
+    // permutation here would desynchronize the runtime fn.q -> handler map.
     if (options.compactRuntime === true) {
         D = specializeRuntimeSource(D, options);
         D = compactRuntimeSource(D)
@@ -1187,4 +1212,6 @@ class X71CodeGenerator {
 X71CodeGenerator.buildContainer = buildContainer;
 X71CodeGenerator.x71Loader = x71Loader;
 X71CodeGenerator.payloadGuardHash = payloadGuardHash;
+X71CodeGenerator.buildDispatchPlan = buildDispatchPlan;
+X71CodeGenerator.specializeDispatchSource = specializeDispatchSource;
 module.exports = X71CodeGenerator;

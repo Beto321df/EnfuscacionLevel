@@ -9,6 +9,18 @@ console.log('BENCH lines',source.split(/\r?\n/).length,'chars',source.length);
 const exactGenerated=new X72().generate(source,{preset:'maximum'});
 console.log('X72 EXACT OUTPUT',exactGenerated.length,'chars');
 
+const x71Sizes=[];
+for(let i=0;i<6;i++){
+    const out=new X71().generate(source,{preset:'strong'});
+    x71Sizes.push(out.length);
+}
+const x71Min=Math.min(...x71Sizes);
+const x71Max=Math.max(...x71Sizes);
+const x71Avg=Math.round(x71Sizes.reduce((a,b)=>a+b,0)/x71Sizes.length);
+console.log('X71 EXACT OUTPUTS',x71Sizes.join(','));
+console.log('X71 EXACT MIN/MAX/AVG',x71Min,x71Max,x71Avg,'chars');
+console.log('X71 EXACT SPREAD',((x71Max-x71Min)/Math.max(1,x71Avg)*100).toFixed(2)+'%');
+
 for(const optimize of [false,true]){
   try{
     const p=buildNativeProgram(source,{fallback:false,optimize,polymorphic:false});

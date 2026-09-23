@@ -781,7 +781,7 @@ function polymorphDispatchSource(source, map) {
 
 function specializeDispatchSource(source, plan) {
     const startMarker = "local a1,b,c,d=e[2],e[3],e[4],e[5];if o==1 then";
-    const endMarker = ";else error('X71 opcode')end;";
+    const endMarker = "else error('X71 opcode')end end;";
     const start = source.indexOf(startMarker);
     const end = source.indexOf(endMarker, start);
     if (start < 0 || end < start || !plan || !plan.map) {

@@ -774,7 +774,9 @@ function polymorphDispatchSource(source, map) {
     const head = source.slice(0, split);
     const tail = source.slice(split);
     const body = tail.replace(/o==([0-9]+)/g, (_, n) => 'o==' + String(map[Number(n)] || Number(n)));
-    const table = 'local QD={' + Array.from({ length: 56 }, (_, i) => (i + 1) + '=' + map[i + 1]).join(',') + '};';
+    const table = 'local QD={' +
+        Object.keys(map).map(key => key + '=' + map[key]).join(',') +
+        '};';
     return head + body
         .replace('X=function(t,P,id,pl,pu,a)local fn=', 'X=function(t,P,id,pl,pu,a)' + table + 'local fn=')
         .replace('local o=fn.q[e[1]];', 'local o=QD[fn.q[e[1]]]or fn.q[e[1]];');

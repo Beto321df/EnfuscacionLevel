@@ -130,19 +130,15 @@ module.exports = async function handler(req, res) {
                 return res.status(422).json({ ok: false, msg: `No se pudo proteger el script: ${message}`, stage: 'x7-generation' });
             }
             const protectedCode = generatedCode.replace(/\r?\n/g, ' ').trim();
-            if (protectedCode.length > 1024 * 1024) {
-                return res.status(413).json({ ok: false, msg: `La salida protegida supera el límite de 1 MB (${protectedCode.length} caracteres).`, stage: 'x72-size' });
-            }
-            const isProtected = isZ3Loader(protectedCode) || (
-                protectedCode.startsWith('return(function(') &&
-                protectedCode.includes('return v.v[1]')
-            );
-            if (!isProtected) {
-                return res.status(500).json({
+            if (!protectedCode) {
+                return res.status(422).json({
                     ok: false,
-                    msg: 'El motor X7 generó una salida protegida inválida.',
+                    msg: 'El motor X7 no produjo código protegido.',
                     stage: 'x7-output'
                 });
+            }
+            if (protectedCode.length > 1024 * 1024) {
+                return res.status(413).json({ ok: false, msg: `La salida protegida supera el límite de 1 MB (${protectedCode.length} caracteres).`, stage: 'x72-size' });
             }
             const createdAt = Date.now();
             const scriptPayload = { owner: cleanUser, code: protectedCode, createdAt };

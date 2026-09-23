@@ -65,6 +65,11 @@ assert.strictEqual(new Set(aliasPlan.usedHandlers).size,aliasPlan.usedHandlers.l
 assert(!implementation.includes("M_INV"),'X7.1 no debe dejar una inversa de metadata sin declarar');
 assert(!implementation.includes("local PACK=__X71_PACK__"),'X7.1 no debe crear un alias local para el packer compartido');
 assert(implementation.includes("function validateRuntimeBindings(source)"),'X7.1 debe validar bindings de helpers del runtime');
+assert(implementation.includes("'UNPACK','INVK','D12','D16','D32','CINV','LINV','INV'"),'X7.1 debe manglear los helpers matemáticos de los tres modos');
+assert(implementation.includes("local function D12(a,b)return(a*b)%4096 end"),'X7.1 VM debe tener multiplicación 12-bit');
+assert(implementation.includes("local function D16(a,b)return(a*b)%65536 end"),'X7.1 VM debe tener multiplicación 16-bit');
+assert(implementation.includes("const modeMath = source.match"),'X7.1 validator debe comprobar los tres caminos de tamaño');
+assert(implementation.includes("z.mode==12 and D12 or z.mode==16 and D16 or D32"),'X7.1 inversas deben respetar el modo del contenedor');
 assert(implementation.includes("const staged = mapping.map"),'X7.1 debe renombrar helpers mediante placeholders inertes');
 
 
@@ -136,10 +141,11 @@ for(let i=0;i<4;i+=1){
     assert(out.includes('setmetatable('),'X7.1 ahora usa lazy constants mediante metatable');
     assert(/local [A-Za-z]=function\(\.\.\.\)/.test(out),'X7.1 debe incluir pack propio');
     assert.strictEqual((out.match(/local [A-Za-z]=function\(\.\.\.\)local z=\{\.\.\.\};z\.n=select\('#',\.\.\.\);return z end;/g) || []).length, 1, 'X7.1 runtime compacto debe compartir un único packer');
-    const modeMath = out.match(/fn\.f\.mode==16 and ([A-Za-z_][A-Za-z0-9_]*) or ([A-Za-z_][A-Za-z0-9_]*)/);
-    assert(modeMath, 'X7.1 debe conservar la selección 16/32 del helper de llamadas');
-    assert(out.includes('local ' + modeMath[1] + '=function('), 'X7.1 helper de multiplicación 16-bit debe existir con el mismo nombre');
-    assert(out.includes('local ' + modeMath[2] + '=function('), 'X7.1 helper de multiplicación 32-bit debe existir con el mismo nombre');
+    const modeMath = out.match(/fn\.f\.mode==12 and ([A-Za-z_][A-Za-z0-9_]*) or fn\.f\.mode==16 and ([A-Za-z_][A-Za-z0-9_]*) or ([A-Za-z_][A-Za-z0-9_]*)/);
+    assert(modeMath, 'X7.1 debe conservar la selección 12/16/32 del helper de llamadas');
+    assert(out.includes('local ' + modeMath[1] + '=function('), 'X7.1 helper de multiplicación 12-bit debe existir con el mismo nombre');
+    assert(out.includes('local ' + modeMath[2] + '=function('), 'X7.1 helper de multiplicación 16-bit debe existir con el mismo nombre');
+    assert(out.includes('local ' + modeMath[3] + '=function('), 'X7.1 helper de multiplicación 32-bit debe existir con el mismo nombre');
     assert(out.endsWith(',...)'),'X7.1 debe terminar en la invocación anónima');
     assert(!/\bbit32\b|\bbit64\b|\bxor\b/i.test(out),'X7.1 no debe depender de APIs bitwise prohibidas');
     for(const marker of ['Z-Nexus','makeCounter','counterA','transform']){

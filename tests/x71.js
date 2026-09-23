@@ -83,7 +83,13 @@ for(let i=0;i<4;i+=1){
     for(const marker of ['Z-Nexus','makeCounter','counterA','transform']){
         assert(!out.includes(marker),'X7.1 no debe exponer un identificador fuente');
     }
-    luaparse.parse(out,{wait:false,comments:false,luaVersion:'5.1'});
+    try {
+        luaparse.parse(out,{wait:false,comments:false,luaVersion:'5.1'});
+    } catch (e) {
+        const at = Number.isInteger(e.index) ? e.index : 2694;
+        console.log('X7.1 SHELL PARSE', e.message, 'AT', at, 'SNIP', out.slice(Math.max(0,at-180),at+360));
+        throw e;
+    }
 }
 
 const a=new CodeGenerator().generate('print("same")',{preset:'strong'});

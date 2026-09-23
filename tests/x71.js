@@ -25,8 +25,8 @@ assert(
     'X7.1 debe leer el stream de opcodes'
 );
 assert(
-    implementation.includes('fn.q={};for q=1,56 do fn.q[q]=iu()end;'),
-    'X7.1 debe reconstruir el mapa físico->semántico de forma compacta'
+    implementation.includes('fn.q={};local nq=iu();for j=1,nq do local raw=iu();local hid=iu();fn.q[raw]=hid end;'),
+    'X7.1 debe reconstruir el mapa físico->handler de forma compacta'
 );
 
 const source=`local seed=17

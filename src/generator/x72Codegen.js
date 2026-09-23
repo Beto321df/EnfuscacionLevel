@@ -4,9 +4,18 @@ const { buildEmissionPlan } = require('../zlang/emitter');
 const { resolvePreset } = require('../zlang/presets');
 const { hardenProgram } = require('../zlang/x72Hardening');
 
-function hardeningPlan(name, attempt, sourceLines) {
+function hardeningPlan(name, attempt, sourceLines, sourceBytes = 0) {
     const max = String(name).toLowerCase() === 'maximum';
-    const compact = Number(sourceLines) > 450;
+
+    // Do not use a single 450-line cliff: a 440-line GUI script used to take
+    // the full-density maximum profile while a 451+ line script immediately
+    // switched to the compact profile, producing extreme size jumps.
+    // Combine line count and source bytes into a conservative complexity score
+    // so dense/long-line sources also enter the compact transport profile.
+    const lines = Math.max(0, Number(sourceLines) || 0);
+    const bytes = Math.max(0, Number(sourceBytes) || 0);
+    const complexity = Math.max(lines, Math.ceil(bytes / 40));
+    const compact = complexity >= 360;
     const profiles = max
         ? (compact
             ? [
@@ -41,7 +50,7 @@ class X72CodeGenerator {
 
         const preset = resolvePreset(options.preset || 'maximum');
         const lineCount = source.split(/\r?\n/).length;
-        const plan = hardeningPlan(preset.name, 0, lineCount);
+        const plan = hardeningPlan(preset.name, 0, lineCount, source.length);
 
         const native = buildNativeProgram(source, {
             polymorphOptions: preset.polymorph

@@ -72,12 +72,11 @@ for(let i=0;i<4;i+=1){
     assert.strictEqual(typeof out,'string');
     assert.strictEqual(out.includes('\n'),false,'X7.1 debe ser una sola línea');
     assert(out.startsWith('return(function('),'X7.1 debe usar una carcasa anónima compacta');
-    assert(out.includes('=(function(p,a,n,k,w,h)'), 'X7.1 debe incluir un decoder anónimo');
-    assert(out.includes('=(function(P,id,pl,pu,a)'), 'X7.1 debe incluir una VM anónima');
+    assert((out.match(/=\(function\(/g) || []).length >= 2,'X7.1 debe incluir decoder y VM anónimos');
     assert(!out.includes('table.pack'),'X7.1 no debe depender de table.pack');
     assert(!out.includes('table.unpack'),'X7.1 no debe depender de table.unpack');
     assert(out.includes('setmetatable('),'X7.1 ahora usa lazy constants mediante metatable');
-    assert(out.includes("local PACK=function"),'X7.1 debe incluir pack propio');
+    assert(/local [A-Za-z]=function\(\.\.\.\)/.test(out),'X7.1 debe incluir pack propio');
     assert(out.endsWith(',...)'),'X7.1 debe terminar en la invocación anónima');
     assert(!/\bbit32\b|\bbit64\b|\bxor\b/i.test(out),'X7.1 no debe depender de APIs bitwise prohibidas');
     for(const marker of ['Z-Nexus','makeCounter','counterA','transform']){

@@ -274,12 +274,21 @@ function buildDispatchPlan(program) {
             if (Number.isInteger(sem) && sem >= 1 && sem <= OP_COUNT) used.add(sem);
         }
     }
-    const semantics = Array.from(used).sort((a, b) => a - b);
-    if (!semantics.length) throw new Error('X7.1: programa sin instrucciones.');
+
+    // The generated dispatcher only contains canonical semantic handlers.
+    // Alias opcodes are canonicalized before packing and must never occupy a
+    // second dispatcher predicate. Build the handler permutation across every
+    // canonical handler, not just handlers used by the current program;
+    // otherwise an unused predicate can retain a numeric ID randomly assigned
+    // to a different handler, producing duplicate/unreachable predicates.
+    const semantics = Array.from({ length: OP_COUNT }, (_, i) => i + 1)
+        .filter(id => !REG_ALIAS_BASE[OP_NAME[id]]);
     const handlerIds = shuffle(Array.from({ length: OP_COUNT }, (_, i) => i + 1));
     const map = {};
     for (let i = 0; i < semantics.length; i += 1) map[semantics[i]] = handlerIds[i];
-    return { map, handlerIds, semantics };
+
+    if (!used.size) throw new Error('X7.1: programa sin instrucciones.');
+    return { map, handlerIds, semantics, used: Array.from(used).sort((a, b) => a - b) };
 }
 
 function buildContainer(program, options = {}) {

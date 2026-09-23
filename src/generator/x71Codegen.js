@@ -831,7 +831,7 @@ function mangleRuntimeIdentifiers(source) {
         'PACK','UNPACK','INVK','D32','D16','CINV','LINV','INV',
         'GG','SG','N','A','V','B','H','U','S','M','I','X','F'
     ];
-    const used = new Set((source.match(/\\b[A-Za-z_][A-Za-z0-9_]*\\b/g) || []));
+    const used = new Set((source.match(/\b[A-Za-z_][A-Za-z0-9_]*\b/g) || []));
     const taken = new Set();
     const mapping = new Map();
 
@@ -855,7 +855,7 @@ function mangleRuntimeIdentifiers(source) {
     }
 
     return [...mapping.entries()].reduce(
-        (out, [original, replacement]) => out.replace(new RegExp('\\\\b' + original + '\\\\b', 'g'), replacement),
+        (out, [original, replacement]) => out.replace(new RegExp('\\b' + original + '\\b', 'g'), replacement),
         source
     );
 }

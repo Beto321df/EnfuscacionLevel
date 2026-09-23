@@ -55,6 +55,22 @@ function invOdd32(a) {
     for (let i = 0; i < 5; i += 1) x = mul32(x, (2 - mul32(a, x)) >>> 0);
     return x >>> 0;
 }
+function mod12(v) {
+    v = Number(v) % 4096;
+    if (v < 0) v += 4096;
+    return v;
+}
+function mul12(a, b) {
+    return (mod12(a) * mod12(b)) % 4096;
+}
+function randomOdd12() {
+    return (rand(1, 4095) | 1) & 4095;
+}
+function invOdd12(a) {
+    let x = 1;
+    for (let i = 0; i < 3; i += 1) x = mul12(x, 2 - mul12(a, x));
+    return x & 4095;
+}
 function mod16(v) {
     v = Number(v) % 65536;
     if (v < 0) v += 65536;
@@ -70,6 +86,21 @@ function invOdd16(a) {
     let x = 1;
     for (let i = 0; i < 4; i += 1) x = mul16(x, 2 - mul16(a, x));
     return x & 65535;
+}
+function canPack12(fn, options = {}) {
+    if (options.packOperands12 === false) return false;
+    if (fn.code.length > 4095 || fn.localCount > 4095 || fn.registerCount > 4095) return false;
+    if (fn.params.some(v => v > 4095)) return false;
+    if (fn.upvalues.some(v => v.index > 4095)) return false;
+    for (const layout of fn.iteratorLayouts) {
+        if (layout.some(v => v > 4095)) return false;
+    }
+    for (const ins of fn.code) {
+        for (let i = 1; i < 5; i += 1) {
+            if (!Number.isInteger(ins[i]) || ins[i] < 0 || ins[i] > 4095) return false;
+        }
+    }
+    return true;
 }
 function canPack16(fn, options = {}) {
     if (options.packOperands16 === false) return false;
@@ -347,13 +378,46 @@ function buildContainer(program, options = {}) {
     for (let i = 0; i < C.functions.length; i += 1) {
         const fn = C.functions[i];
         if (fn.code.length > 0xFFFFFFFF) throw new Error('X7.1: demasiadas instrucciones.');
-        const packed16 = canPack16(fn, options);
-        const layout = packed16 ? 16 : 32;
-        const writeOperand = packed16 ? u16 : u32;
-        const transform = packed16 ? mul16 : mul32;
-        const modulus = packed16 ? 65536 : PC_MOD;
-        const oddKey = packed16 ? randomOdd16 : randomOdd32;
-        const invert = packed16 ? invOdd16 : invOdd32;
+        const packed12 = canPack12(fn, options);
+        const packed16 = !packed12 && canPack16(fn, options);
+        const layout = packed12 ? 12 : (packed16 ? 16 : 32);
+        let writeOperand;
+        let transform;
+        let modulus;
+        let oddKey;
+        let invert;
+        if (packed12) {
+            const state = { acc: 0, bits: 0 };
+            writeOperand = value => {
+                value = mod12(value);
+                state.acc += value * (2 ** state.bits);
+                state.bits += 12;
+                while (state.bits >= 8) {
+                    codeSection.push(state.acc % 256);
+                    state.acc = Math.floor(state.acc / 256);
+                    state.bits -= 8;
+                }
+            };
+            const flushOperand = () => {
+                if (state.bits > 0) {
+                    codeSection.push(state.acc % 256);
+                    state.acc = 0;
+                    state.bits = 0;
+                }
+            };
+            transform = mul12;
+            modulus = 4096;
+            oddKey = randomOdd12;
+            invert = invOdd12;
+            // flushed below at byte-aligned boundaries
+            fn.__x71FlushOperand = flushOperand;
+        } else {
+            writeOperand = packed16 ? u16 : u32;
+            transform = packed16 ? mul16 : mul32;
+            modulus = packed16 ? 65536 : PC_MOD;
+            oddKey = packed16 ? randomOdd16 : randomOdd32;
+            invert = packed16 ? invOdd16 : invOdd32;
+        }
 
         const order = shuffle([1, 2, 3, 4]);
         const pcMul = oddKey();
@@ -396,9 +460,10 @@ function buildContainer(program, options = {}) {
         }
         if (encodeTargetTokens) {
             for (let logicalPc = 1; logicalPc <= fn.code.length; logicalPc += 1) {
-                writeOperand(codeSection, targetTokens[logicalPc]);
+                writeOperand(targetTokens[logicalPc]);
             }
         }
+        if (fn.__x71FlushOperand) fn.__x71FlushOperand();
 
         const physicalOrder = encodeInstructionRoute
             ? shuffle(Array.from({ length: fn.code.length }, (_, n) => n + 1))
@@ -412,9 +477,11 @@ function buildContainer(program, options = {}) {
                 writeOperand(codeSection, logicalToPhysical[logicalPc]);
             }
         }
+        if (fn.__x71FlushOperand) fn.__x71FlushOperand();
 
         for (const logicalPc of physicalOrder) codeSection.push(fn.code[logicalPc - 1][0] & 255);
         for (let q = 1; q <= OP_COUNT; q += 1) codeSection.push(opcodeMaps[i].decode[q] || q);
+        if (fn.__x71FlushOperand) fn.__x71FlushOperand();
 
         const planes = [[], [], [], []];
         const planeKeys = [];
@@ -463,10 +530,11 @@ function buildContainer(program, options = {}) {
             for (let j = 0; j < planes[p].length; j += 1) {
                 const feedback = encodeOperandFeedback ? transform(previous, feedbackKeys[p]) : 0;
                 const v = (planes[p][j] + planeKeys[p] + j * planeSteps[p] + feedback) % modulus;
-                writeOperand(codeSection, v);
+                writeOperand(v);
                 previous = v;
             }
         }
+        if (fn.__x71FlushOperand) fn.__x71FlushOperand();
     }
 
     // Section D: a small verifier ledger. It proves the count/shape without exposing source metadata.

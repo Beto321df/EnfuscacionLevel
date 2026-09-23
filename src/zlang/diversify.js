@@ -158,6 +158,7 @@ function diversifyConstants(program, options = {}) {
         if (!original.length) continue;
         const oldToNew = new Map();
         const next = [];
+        const seenOccurrences = new Map();
         for (let oldPc = 1; oldPc <= original.length; oldPc += 1) {
             const ins = original[oldPc - 1];
             oldToNew.set(oldPc, next.length + 1);
@@ -168,7 +169,8 @@ function diversifyConstants(program, options = {}) {
             const constantIndex = ins[1];
             const constant = program.constants[constantIndex];
             const occurrenceKey = f + ':' + constantIndex;
-            const occurrence = (occurrences.get(occurrenceKey) || 1) - 1;
+            const occurrence = seenOccurrences.get(occurrenceKey) || 0;
+            seenOccurrences.set(occurrenceKey, occurrence + 1);
             const key = f + ':' + constantIndex + ':' + occurrence;
             if (constant?.type === 1 && selectedStrings.has(key)) {
                 const pieces = splitStringConstant(program, ins[1], cache, maxShards);

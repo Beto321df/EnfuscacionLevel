@@ -103,7 +103,14 @@ for(let i=0;i<4;i+=1){
     assert.strictEqual((out.match(/local function iV\(\)/g) || []).length, 1, 'X7.1 output no debe duplicar iV');
     assert(!/o==[0-9]+ or o==[0-9]+ then/.test(out),'X7.1 output no debe agrupar handlers del dispatcher');
     assert(!/if o==[0-9]+ then\\s*(?:elseif|else error)/.test(out),'X7.1 output no debe contener handlers vacíos');
-    assert(!/local [A-Za-z]=[A-Za-z];/.test(out),'X7.1 output no debe crear aliases triviales de una sola letra');
+    const packMatch = out.match(/return\(function\([^)]*\)local ([A-Za-z])=function\(\.\.\.\)/);
+    assert(packMatch,'X7.1 debe declarar el packer en la carcasa compacta');
+    const packerName = packMatch[1];
+    assert.strictEqual(
+        (out.match(new RegExp('local ' + packerName + '=' , 'g')) || []).length,
+        1,
+        'X7.1 no debe redeclarar el packer dentro del VM'
+    );
     assert(!/if table and type\(/.test(out),'X7.1 output no debe contener la rama muerta de UNPACK');
     assert(!out.includes('dbg'),'X7.1 output compacto no debe filtrar estado de debug');
     assert(out.includes('setmetatable('),'X7.1 ahora usa lazy constants mediante metatable');

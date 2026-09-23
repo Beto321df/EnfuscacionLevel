@@ -416,7 +416,7 @@ function buildEmissionPlan(program, options = {}) {
             // register pipeline. It is an optional size optimization, not a protection
             // layer, and a stale/misaligned fused target must never be able to abort
             // an otherwise valid X7 build.
-            const useComparisonFusion = false;
+            const useComparisonFusion = options.enableComparisonFusion === true;
             try {
                 if (useComparisonFusion) {
                     fuseRegisterComparisons(candidate);

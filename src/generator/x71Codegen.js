@@ -825,6 +825,41 @@ function compactRuntimeSource(source) {
         .replace(/'X71[^']*'/g, "''");
 }
 
+function mangleRuntimeIdentifiers(source) {
+    const candidates = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+    const names = [
+        'PACK','UNPACK','INVK','D32','D16','CINV','LINV','INV',
+        'GG','SG','N','A','V','B','H','U','S','M','I','X','F'
+    ];
+    const used = new Set((source.match(/\\b[A-Za-z_][A-Za-z0-9_]*\\b/g) || []));
+    const taken = new Set();
+    const mapping = new Map();
+
+    for (const original of names) {
+        let replacement = null;
+        for (const candidate of shuffle(candidates)) {
+            if (!used.has(candidate) && !taken.has(candidate)) {
+                replacement = candidate;
+                break;
+            }
+        }
+        if (!replacement) {
+            let i = 0;
+            do {
+                replacement = 'x' + candidates[i % candidates.length] + Math.floor(i / candidates.length || 1);
+                i += 1;
+            } while (used.has(replacement) || taken.has(replacement));
+        }
+        taken.add(replacement);
+        mapping.set(original, replacement);
+    }
+
+    return [...mapping.entries()].reduce(
+        (out, [original, replacement]) => out.replace(new RegExp('\\\\b' + original + '\\\\b', 'g'), replacement),
+        source
+    );
+}
+
 function makeCompactShellNames() {
     const pool = shuffle("ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz".split(""));
     const reserved = new Set(["n","h","P","v","z"]);
@@ -874,11 +909,13 @@ function x71Loader(program, options = {}) {
             .replaceAll("t.k", "k")
             .replaceAll("t.s", "w")
             .replaceAll("t.m", "h");
+        D = mangleRuntimeIdentifiers(D);
 
         O = compactRuntimeSource(O)
             .replace("O=function(t,P,id,pl,pu,a)", "function(P,id,pl,pu,a)")
             .replace("X=function(t,P,id,pl,pu,a)", "X=function(P,id,pl,pu,a)")
             .replaceAll("X(t,P,", "X(P,");
+        O = mangleRuntimeIdentifiers(O);
 
         const shell = makeCompactShellNames();
         const guard = options.runtimeGuard ? payloadGuardHash(payload, alphabet, '', seed, step, cipherMode) : 0;

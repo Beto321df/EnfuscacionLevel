@@ -944,10 +944,16 @@ function x71Loader(program, options = {}) {
         O = compactRuntimeSource(O)
             .replace("O=function(t,P,id,pl,pu,a)", "function(P,id,pl,pu,a)")
             .replace("X=function(t,P,id,pl,pu,a)", "X=function(P,id,pl,pu,a)")
-            .replaceAll("X(t,P,", "X(P,");
+            .replaceAll("X(t,P,", "X(P,")
+            // Reuse the outer capsule packer inside the VM executor. The
+            // placeholder survives identifier mangling and is rebound only
+            // after the compact shell name is known.
+            .replace("local PACK=function(...)local z={...};z.n=select('#',...);return z end;", "local PACK=__X71_PACK__;")
+            ;
         O = mangleRuntimeIdentifiers(O);
 
         const shell = makeCompactShellNames();
+        O = O.replaceAll("__X71_PACK__", shell.packer);
         const guard = options.runtimeGuard ? payloadGuardHash(payload, alphabet, '', seed, step, cipherMode) : 0;
 
         let wrapper = "return(function(" +

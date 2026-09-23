@@ -1001,7 +1001,7 @@ function mangleRuntimeIdentifiers(source, reservedNames = []) {
     const reserved = new Set(reservedNames);
     const used = new Set((source.match(/\b[A-Za-z_][A-Za-z0-9_]*\b/g) || []));
     const taken = new Set();
-    const mapping = new Map();
+    const mapping = [];
 
     for (const original of names) {
         let replacement = null;
@@ -1019,13 +1019,35 @@ function mangleRuntimeIdentifiers(source, reservedNames = []) {
             } while (used.has(replacement) || taken.has(replacement) || reserved.has(replacement));
         }
         taken.add(replacement);
-        mapping.set(original, replacement);
+        mapping.push({ original, replacement });
     }
 
-    return [...mapping.entries()].reduce(
-        (out, [original, replacement]) => out.replace(new RegExp('\\b' + original + '\\b', 'g'), replacement),
-        source
-    );
+    // Rename through inert placeholders first. This prevents one generated
+    // helper name from being mistaken for another helper during a second
+    // replacement pass (the mode-16 D16/D32 path is particularly sensitive).
+    let out = source;
+    const staged = mapping.map((entry, index) => ({
+        ...entry,
+        token: '__X71_MANGLE_' + index + '__'
+    }));
+    for (const { original, token } of staged) {
+        out = out.replace(new RegExp('\\b' + original + '\\b', 'g'), token);
+    }
+    for (const { replacement, token } of staged) {
+        out = out.replaceAll(token, replacement);
+    }
+    return out;
+}
+
+function validateRuntimeBindings(source) {
+    const mode16 = source.match(/fn\.f\.mode==16 and ([A-Za-z_][A-Za-z0-9_]*) or ([A-Za-z_][A-Za-z0-9_]*)/);
+    if (!mode16) return source;
+    for (const name of [mode16[1], mode16[2]]) {
+        if (!source.includes('local ' + name + '=function(')) {
+            throw new Error('X7.1: runtime helper inválido en la ruta de modo 16/32: ' + name);
+        }
+    }
+    return source;
 }
 
 function makeCompactShellNames(sources = []) {
@@ -1109,6 +1131,7 @@ function x71Loader(program, options = {}) {
         D = mangleRuntimeIdentifiers(D, shellNames);
         O = mangleRuntimeIdentifiers(O, shellNames);
         O = O.replaceAll("__X71_PACK__", shell.packer);
+        O = validateRuntimeBindings(O);
 
         const guard = options.runtimeGuard ? payloadGuardHash(payload, alphabet, '', seed, step, cipherMode) : 0;
 
@@ -1217,4 +1240,6 @@ X71CodeGenerator.x71Loader = x71Loader;
 X71CodeGenerator.payloadGuardHash = payloadGuardHash;
 X71CodeGenerator.buildDispatchPlan = buildDispatchPlan;
 X71CodeGenerator.specializeDispatchSource = specializeDispatchSource;
+X71CodeGenerator.mangleRuntimeIdentifiers = mangleRuntimeIdentifiers;
+X71CodeGenerator.validateRuntimeBindings = validateRuntimeBindings;
 module.exports = X71CodeGenerator;

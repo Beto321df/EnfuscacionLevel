@@ -45,8 +45,23 @@ assert.strictEqual(
 assert(implementation.includes("local UNPACK=(type(unpack)=='function'and unpack)"),'X7.1 debe inicializar UNPACK directamente sin auto-comprobación muerta');
 assert(!implementation.includes("local UNPACK;if table and type(UNPACK)=='function'"),'X7.1 no debe conservar la rama muerta de UNPACK');
 assert(!implementation.includes("o==17 or o==18") && !implementation.includes("o==19 or o==20"),'X7.1 cada opcode del dispatcher debe tener su predicate propio');
-assert(implementation.includes("function pruneDispatcherHandlers(source, used)"),'X7.1 debe podar handlers del dispatcher que no usa el programa');
+assert(implementation.includes("function parseDispatcherSource(source)"),'X7.1 debe parsear la plantilla del dispatcher por handlers');
+assert(implementation.includes("function buildSpecializedDispatcherSource(source, plan)"),'X7.1 debe construir el dispatcher desde los handlers semánticos usados');
+assert(implementation.includes("function pruneDispatcherHandlers(source, used)"),'X7.1 debe conservar la interfaz de poda del dispatcher');
 assert(implementation.includes("function validateDispatcherStructure(source)"),'X7.1 debe validar la estructura final del dispatcher');
+
+const syntheticPlan = { used: [2, 5], map: { 2: 41, 5: 7 } };
+const syntheticDispatcher = "head;local X;local F=function()if o==1 then A elseif o==2 then B elseif o==5 then C elseif o==6 then D else error('X71 opcode')end;return";
+const specializedSynthetic = CodeGenerator.specializeDispatchSource(syntheticDispatcher, syntheticPlan);
+const syntheticIds = Array.from(specializedSynthetic.matchAll(/\\b(?:if|elseif) o==([0-9]+) then/g)).map(m => Number(m[1]));
+assert.deepStrictEqual(syntheticIds,[41,7],'X7.1 debe emitir únicamente los handler IDs asignados a los semánticos usados');
+
+const aliasPlan = CodeGenerator.buildDispatchPlan({
+    functions: [{ code: [[41,0,0,0,0],[40,0,0,0,0],[2,0,0,0,0]] }]
+});
+assert(aliasPlan.used.includes(1) && aliasPlan.used.includes(2),'X7.1 debe canonicalizar aliases antes de construir used');
+assert(!aliasPlan.used.includes(40) && !aliasPlan.used.includes(41),'X7.1 used no debe contener IDs de alias');
+assert.strictEqual(new Set(aliasPlan.usedHandlers).size,aliasPlan.usedHandlers.length,'X7.1 usedHandlers debe ser único');
 assert(!implementation.includes("M_INV"),'X7.1 no debe dejar una inversa de metadata sin declarar');
 assert(!implementation.includes("local PACK=__X71_PACK__"),'X7.1 no debe crear un alias local para el packer compartido');
 

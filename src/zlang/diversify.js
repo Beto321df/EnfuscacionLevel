@@ -3,6 +3,18 @@ const { OPS, BIN } = require('./compiler3');
 
 function randomInt(min, max) { return crypto.randomInt(min, max + 1); }
 function chance(probability) { return probability > 0 && crypto.randomInt(0, 1000000) < Math.floor(Math.min(1, probability) * 1000000); }
+function shuffle(values) {
+    const out = values.slice();
+    for (let i = out.length - 1; i > 0; i -= 1) {
+        const j = randomInt(0, i);
+        [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+}
+function boundedTargetCount(candidateCount, probability, budget) {
+    const p = Math.max(0, Math.min(1, Number(probability) || 0));
+    return Math.min(budget, Math.max(0, Math.round(candidateCount * p)));
+}
 
 function targetFields(ins) {
     switch (ins[0]) {
@@ -84,9 +96,10 @@ function diversifyConstants(program, options = {}) {
     let strings = 0;
     let numbers = 0;
     const instructionCount = (program.functions || []).reduce((n, fn) => n + ((fn.code || []).length), 0);
-    // Keep diversification strong but bounded for very large programs. Without
-    // a budget, thousands of literals can expand into several instructions each
-    // and turn a valid 5k-line source into an unnecessarily huge intermediate.
+
+    // The budget is deliberately separate from the probability. We choose the
+    // exact number of expansions once, then randomize their locations. This
+    // keeps protection diversity while making output size predictable.
     const defaultBudget = Math.min(2048, Math.max(64, Math.floor(Math.max(1, instructionCount) * 0.18)));
     const stringBudget = Number.isFinite(options.maxStringExpansions)
         ? Math.max(0, Math.floor(Number(options.maxStringExpansions)))
@@ -95,7 +108,39 @@ function diversifyConstants(program, options = {}) {
         ? Math.max(0, Math.floor(Number(options.maxNumberExpansions)))
         : defaultBudget;
 
-    for (const fn of program.functions) {
+    const stringCandidates = [];
+    const numberCandidates = [];
+    for (let f = 0; f < program.functions.length; f += 1) {
+        const code = program.functions[f].code || [];
+        for (let pc = 0; pc < code.length; pc += 1) {
+            const ins = code[pc];
+            if (ins?.[0] !== OPS.PUSH_CONST) continue;
+            const constant = program.constants[ins[1]];
+            if (constant?.type === 1 && String(constant.value).length >= 8) {
+                stringCandidates.push([f, pc]);
+            } else if (
+                constant?.type === 2 &&
+                Number.isSafeInteger(Number(constant.value)) &&
+                Math.abs(Number(constant.value)) <= 0x3fffffff
+            ) {
+                numberCandidates.push([f, pc]);
+            }
+        }
+    }
+
+    const selectedStrings = new Set(
+        shuffle(stringCandidates)
+            .slice(0, boundedTargetCount(stringCandidates.length, stringChance, stringBudget))
+            .map(([f, pc]) => f + ':' + pc)
+    );
+    const selectedNumbers = new Set(
+        shuffle(numberCandidates)
+            .slice(0, boundedTargetCount(numberCandidates.length, numberChance, numberBudget))
+            .map(([f, pc]) => f + ':' + pc)
+    );
+
+    for (let f = 0; f < program.functions.length; f += 1) {
+        const fn = program.functions[f];
         const original = Array.isArray(fn.code) ? fn.code : [];
         if (!original.length) continue;
         const oldToNew = new Map();
@@ -107,8 +152,9 @@ function diversifyConstants(program, options = {}) {
                 next.push(ins.slice());
                 continue;
             }
+            const key = f + ':' + (oldPc - 1);
             const constant = program.constants[ins[1]];
-            if (constant?.type === 1 && strings < stringBudget && chance(stringChance)) {
+            if (constant?.type === 1 && selectedStrings.has(key)) {
                 const pieces = splitStringConstant(program, ins[1], cache, maxShards);
                 if (pieces && pieces.length > 1) {
                     next.push([OPS.PUSH_CONST, pieces[0], 0, 0, 0]);
@@ -120,7 +166,7 @@ function diversifyConstants(program, options = {}) {
                     continue;
                 }
             }
-            if (constant?.type === 2 && numbers < numberBudget && chance(numberChance)) {
+            if (constant?.type === 2 && selectedNumbers.has(key)) {
                 const parts = splitNumberConstant(program, ins[1], cache);
                 if (parts) {
                     next.push([OPS.PUSH_CONST, parts[0], 0, 0, 0]);
@@ -138,9 +184,6 @@ function diversifyConstants(program, options = {}) {
             const start = oldToNew.get(oldPc);
             const newIns = next[start - 1];
             const fields = targetFields(oldIns);
-            // Expanded PUSH_CONST instructions have no branch targets. The
-            // surviving first instruction for a non-expanded statement is the
-            // exact instruction that owns the translated target fields.
             if (!newIns || fields.length === 0) continue;
             for (const field of fields) newIns[field] = oldToNew.get(oldIns[field]) ?? oldIns[field];
         }
@@ -157,5 +200,4 @@ function diversifyConstants(program, options = {}) {
     };
     return program;
 }
-
 module.exports = { diversifyConstants };

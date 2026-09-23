@@ -412,7 +412,11 @@ function buildEmissionPlan(program, options = {}) {
             // with the already-correct unfused register program.
             const beforeFusion = cloneProgram(candidate);
             let fusionReason = null;
-            const useComparisonFusion = options.enableComparisonFusion !== false;
+            // Comparison-branch fusion is intentionally disabled in the production
+            // register pipeline. It is an optional size optimization, not a protection
+            // layer, and a stale/misaligned fused target must never be able to abort
+            // an otherwise valid X7 build.
+            const useComparisonFusion = false;
             try {
                 if (useComparisonFusion) {
                     fuseRegisterComparisons(candidate);

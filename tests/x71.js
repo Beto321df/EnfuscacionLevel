@@ -28,6 +28,20 @@ assert(
     implementation.includes('fn.q={};local nq=iu();for j=1,nq do local raw=iu();local hid=iu();fn.q[raw]=hid end;'),
     'X7.1 debe reconstruir el mapa físico->handler de forma compacta'
 );
+assert(implementation.includes("function validateDispatcherPredicates(source)"),
+    'X7.1 debe validar que el dispatcher no emita predicates duplicados'
+);
+assert(!implementation.includes("if o==2 or o==41 then"),
+    'X7.1 no debe emitir un handler canónico junto con su alias como dos predicates'
+);
+assert(!implementation.includes("elseif o==12 or o==45 then"),
+    'X7.1 no debe duplicar BIN mediante BIN_ALT en el dispatcher'
+);
+assert.strictEqual(
+    (implementation.match(/local function iV\(\)/g) || []).length,
+    1,
+    'X7.1 debe emitir iV una sola vez'
+);
 
 const source=`local seed=17
 local state={value=11,enabled=true,name="Z-Nexus"}
@@ -75,6 +89,11 @@ for(let i=0;i<4;i+=1){
     assert((out.match(/=\(function\(/g) || []).length >= 2,'X7.1 debe incluir decoder y VM anónimos');
     assert(!out.includes('table.pack'),'X7.1 no debe depender de table.pack');
     assert(!out.includes('table.unpack'),'X7.1 no debe depender de table.unpack');
+    const dispatcher = out.slice(out.indexOf('local X;local F='));
+    const dispatcherIds = Array.from(dispatcher.matchAll(/(?:^|;)elseif o==([0-9]+) then|(?:^|;)if o==([0-9]+) then/g))
+        .map(m => Number(m[1] || m[2]));
+    assert.strictEqual(dispatcherIds.length, new Set(dispatcherIds).size, 'X7.1 dispatcher debe tener IDs únicos');
+    assert.strictEqual((out.match(/local function iV\(\)/g) || []).length, 1, 'X7.1 output no debe duplicar iV');
     assert(out.includes('setmetatable('),'X7.1 ahora usa lazy constants mediante metatable');
     assert(/local [A-Za-z]=function\(\.\.\.\)/.test(out),'X7.1 debe incluir pack propio');
     assert(out.endsWith(',...)'),'X7.1 debe terminar en la invocación anónima');

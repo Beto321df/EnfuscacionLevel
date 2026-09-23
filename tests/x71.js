@@ -45,6 +45,10 @@ assert.strictEqual(
 assert(implementation.includes("local UNPACK=(type(unpack)=='function'and unpack)"),'X7.1 debe inicializar UNPACK directamente sin auto-comprobación muerta');
 assert(!implementation.includes("local UNPACK;if table and type(UNPACK)=='function'"),'X7.1 no debe conservar la rama muerta de UNPACK');
 assert(!implementation.includes("o==17 or o==18") && !implementation.includes("o==19 or o==20"),'X7.1 cada opcode del dispatcher debe tener su predicate propio');
+assert(implementation.includes("function pruneDispatcherHandlers(source, used)"),'X7.1 debe podar handlers del dispatcher que no usa el programa');
+assert(implementation.includes("function validateDispatcherStructure(source)"),'X7.1 debe validar la estructura final del dispatcher');
+assert(!implementation.includes("M_INV"),'X7.1 no debe dejar una inversa de metadata sin declarar');
+assert(!implementation.includes("local PACK=__X71_PACK__"),'X7.1 no debe crear un alias local para el packer compartido');
 
 const source=`local seed=17
 local state={value=11,enabled=true,name="Z-Nexus"}
@@ -98,6 +102,8 @@ for(let i=0;i<4;i+=1){
     assert.strictEqual(dispatcherIds.length, new Set(dispatcherIds).size, 'X7.1 dispatcher debe tener IDs únicos');
     assert.strictEqual((out.match(/local function iV\(\)/g) || []).length, 1, 'X7.1 output no debe duplicar iV');
     assert(!/o==[0-9]+ or o==[0-9]+ then/.test(out),'X7.1 output no debe agrupar handlers del dispatcher');
+    assert(!/if o==[0-9]+ then\\s*(?:elseif|else error)/.test(out),'X7.1 output no debe contener handlers vacíos');
+    assert(!/local [A-Za-z]=[A-Za-z];/.test(out),'X7.1 output no debe crear aliases triviales de una sola letra');
     assert(!/if table and type\(/.test(out),'X7.1 output no debe contener la rama muerta de UNPACK');
     assert(!out.includes('dbg'),'X7.1 output compacto no debe filtrar estado de debug');
     assert(out.includes('setmetatable('),'X7.1 ahora usa lazy constants mediante metatable');

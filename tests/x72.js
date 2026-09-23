@@ -212,6 +212,19 @@ assert(mediumOut.startsWith('return(function('),'X7.2 medium benchmark debe gene
 assert.strictEqual(mediumOut.includes('\\n'),false,'X7.2 medium benchmark debe seguir en una línea');
 luaparse.parse(mediumOut,{wait:false,comments:false,luaVersion:'5.1'});
 
+// Regression for the old 450-line hardening cliff. A 440-line source must use
+// the density-aware compact profile instead of the heavy small-source profile.
+const fourFortySource=Array.from({length:440},(_,i)=>[
+    `local cfg${i}={id=${i},enabled=${i%2===0},name="item-${i}" }`,
+    `cfg${i}.value=(${i}*5+${i%13})%127`,
+    `if cfg${i}.enabled then cfg${i}.tag=cfg${i}.name else cfg${i}.tag="off" end`
+].join('\\n')).join('\\n');
+const fourFortyOut=new X72().generate(fourFortySource,{preset:'maximum'});
+assert(fourFortyOut.length<=100*1024,'X7.2 440-line output should stay at or below 100KB');
+assert(fourFortyOut.startsWith('return(function('),'X7.2 440-line benchmark debe generar');
+assert.strictEqual(fourFortyOut.includes('\\n'),false,'X7.2 440-line benchmark debe seguir en una línea');
+luaparse.parse(fourFortyOut,{wait:false,comments:false,luaVersion:'5.1'});
+
 const longSource=Array.from({length:4999},(_,i)=>`local v${i}=${i}`).join('\n')+'\nprint(v4998)';
 const longOut=new X72().generate(longSource,{preset:'strong'});
 assert(longOut.startsWith('return(function('),'X7.2 debe aceptar 5000 líneas');

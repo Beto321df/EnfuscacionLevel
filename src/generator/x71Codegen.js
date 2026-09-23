@@ -1042,8 +1042,17 @@ function mangleRuntimeIdentifiers(source, reservedNames = []) {
 function validateRuntimeBindings(source) {
     const mode16 = source.match(/fn\.f\.mode==16 and ([A-Za-z_][A-Za-z0-9_]*) or ([A-Za-z_][A-Za-z0-9_]*)/);
     if (!mode16) return source;
+
+    // Helpers pueden emitirse como local function X o local X=function.
+    const declared = name => {
+        const esc = name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
+        return new RegExp(
+            '(?:local\\\\s+function\\\\s+' + esc + '\\\\s*\\\\(|local\\\\s+' + esc + '\\\\s*=\\\\s*function\\\\s*\\\\()'
+        ).test(source);
+    };
+
     for (const name of [mode16[1], mode16[2]]) {
-        if (!source.includes('local ' + name + '=function(')) {
+        if (!declared(name)) {
             throw new Error('X7.1: runtime helper inválido en la ruta de modo 16/32: ' + name);
         }
     }

@@ -75,6 +75,8 @@ assert(implementation.includes("return X(t,P,i,l,u,PACK(...),true)"),'X7.1 closu
 assert(implementation.includes("local VMF=setmetatable({},{__mode='k'});local vmDepth=0;"),'X7.1 debe etiquetar closures VM y controlar profundidad de llamadas');
 assert(implementation.includes("coroutine.create(f)"),'X7.1 debe tener una ruta trampoline para cadenas profundas de llamadas VM');
 assert(implementation.includes("'__X71_CALL'"),'X7.1 scheduler debe convertir llamadas VM anidadas en solicitudes de frame');
+assert(!implementation.includes('thenlocal'),'X7.1 runtime scheduler no debe emitir thenlocal');
+assert(!implementation.includes('stabilizeLuaTokenBoundaries'),'X7.1 no debe aplicar reemplazos regex sobre el payload final');
 assert(implementation.includes("local stack={{co=root,args=a}}"),'X7.1 scheduler debe mantener una pila explícita de frames');
 assert(implementation.includes("stack[#stack+1]={co=child,args=r[4]}"),'X7.1 scheduler debe ejecutar el frame hijo sin recursión nativa');
 assert(implementation.includes("if vmDepth>=16 and coroutine"),'X7.1 debe activar el trampoline antes de agotar la pila nativa');

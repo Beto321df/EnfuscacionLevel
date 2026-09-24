@@ -71,6 +71,9 @@ assert(implementation.includes("local function D16(a,b)return(a*b)%65536 end"),'
 assert(implementation.includes("const modeMath = source.match"),'X7.1 validator debe comprobar los tres caminos de tamaño');
 assert(implementation.includes("z.mode==12 and D12 or z.mode==16 and D16 or D32"),'X7.1 inversas deben respetar el modo del contenedor');
 assert(implementation.includes("const staged = mapping.map"),'X7.1 debe renombrar helpers mediante placeholders inertes');
+assert(implementation.includes("return X(t,P,i,l,u,PACK(...),true)"),'X7.1 closures del VM deben usar la ruta de retorno directo para reducir crecimiento de stack');
+assert(implementation.includes("X=function(t,P,id,pl,pu,a,raw)"),'X7.1 executor debe aceptar el modo de retorno directo');
+assert(implementation.includes("if raw then return UNPACK(v.v,1,v.n)end"),'X7.1 retorno directo debe preservar múltiples resultados');
 
 
 

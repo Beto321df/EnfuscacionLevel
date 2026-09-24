@@ -72,6 +72,9 @@ assert(implementation.includes("const modeMath = source.match"),'X7.1 validator 
 assert(implementation.includes("z.mode==12 and D12 or z.mode==16 and D16 or D32"),'X7.1 inversas deben respetar el modo del contenedor');
 assert(implementation.includes("const staged = mapping.map"),'X7.1 debe renombrar helpers mediante placeholders inertes');
 assert(implementation.includes("return X(t,P,i,l,u,PACK(...),true)"),'X7.1 closures del VM deben usar la ruta de retorno directo para reducir crecimiento de stack');
+assert(implementation.includes("local VMF=setmetatable({},{__mode='k'});local vmDepth=0;"),'X7.1 debe etiquetar closures VM y controlar profundidad de llamadas');
+assert(implementation.includes("coroutine.create(f)"),'X7.1 debe tener una ruta trampoline para cadenas profundas de llamadas VM');
+assert(implementation.includes("if vmDepth>=16 and coroutine"),'X7.1 debe activar el trampoline antes de agotar la pila nativa');
 assert(implementation.includes("X=function(t,P,id,pl,pu,a,raw)"),'X7.1 executor debe aceptar el modo de retorno directo');
 assert(implementation.includes("if raw then return UNPACK(v.v,1,v.n)end"),'X7.1 retorno directo debe preservar múltiples resultados');
 

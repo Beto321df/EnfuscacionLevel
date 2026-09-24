@@ -1,1 +1,1 @@
-PLACEHOLDER_WILL_REPLACE
+const crypto = require('crypto');

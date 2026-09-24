@@ -936,6 +936,15 @@ function payloadGuardHash(payload, hi, lo, key, step, mode = 0) {
     h = (h + (key % 256) * 257 + (step % 256) * 65537 + mode * 104729) % 4294967296;
     return h;
 }
+function stabilizeLuaTokenBoundaries(source) {
+    // The final artifact is intentionally whitespace-light. Always keep a hard
+    // statement boundary after block keywords so downstream minifiers cannot
+    // turn "then local" into the invalid identifier "thenlocal".
+    return String(source)
+        .replace(/\\bthen(?=local|return|if|for|while|repeat|do)\\b/g, 'then;')
+        .replace(/\\belse(?=local|return|if|for|while|repeat|do)\\b/g, 'else;')
+        .replace(/\\bdo(?=local|return|if|for|while|repeat)\\b/g, 'do;');
+}
 function compactRuntimeSource(source) {
     return source
         .replace("local dbg={};", "")
@@ -1173,7 +1182,7 @@ function x71Loader(program, options = {}) {
         wrapper += luaQuote(payload) + "," + luaQuote(alphabet) + "," + packed.bytes.length + "," +
             seed + "," + step +
             (compactGuard ? "," + cipherMode + "," + guard : "") + ",...)";
-        return wrapper;
+        return stabilizeLuaTokenBoundaries(wrapper);
     }
 
     const shell = options.polymorphicShell
@@ -1221,7 +1230,7 @@ function x71Loader(program, options = {}) {
         "," + shell.decoder + "=(" + boundD.slice(boundD.indexOf("=") + 1) + ")" +
         "," + shell.executor + "=(" + boundO.slice(boundO.indexOf("=") + 1) + ")" +
         "," + shell.runner + "=(" + boundR.slice(boundR.indexOf("=") + 1) + ")";
-    return "return({" + object + "}):" + shell.runner + "(...)";
+    return stabilizeLuaTokenBoundaries("return({" + object + "}):" + shell.runner + "(...)");
 }
 class X71CodeGenerator {
     generate(source, options = {}) {

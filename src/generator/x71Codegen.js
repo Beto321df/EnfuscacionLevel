@@ -941,9 +941,9 @@ function stabilizeLuaTokenBoundaries(source) {
     // statement boundary after block keywords so downstream minifiers cannot
     // turn "then local" into the invalid identifier "thenlocal".
     return String(source)
-        .replace(/\\bthen(?=local|return|if|for|while|repeat|do)\\b/g, 'then;')
-        .replace(/\\belse(?=local|return|if|for|while|repeat|do)\\b/g, 'else;')
-        .replace(/\\bdo(?=local|return|if|for|while|repeat)\\b/g, 'do;');
+        .replace(/\bthen(?=local|return|if|for|while|repeat|do)\b/g, 'then;')
+        .replace(/\belse(?=local|return|if|for|while|repeat|do)\b/g, 'else;')
+        .replace(/\bdo(?=local|return|if|for|while|repeat)\b/g, 'do;');
 }
 function compactRuntimeSource(source) {
     return source

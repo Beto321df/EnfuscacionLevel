@@ -156,6 +156,9 @@ for(let i=0;i<4;i+=1){
     assert(out.includes('local ' + modeMath[2] + '=function('), 'X7.1 helper de multiplicación 16-bit debe existir con el mismo nombre');
     assert(out.includes('local ' + modeMath[3] + '=function('), 'X7.1 helper de multiplicación 32-bit debe existir con el mismo nombre');
     assert(out.endsWith(',...)'),'X7.1 debe terminar en la invocación anónima');
+    assert(!out.includes('thenlocal'),'X7.1 no debe permitir que un minificador fusione then+local');
+    assert(!out.includes('elselocal'),'X7.1 no debe permitir que un minificador fusione else+local');
+    assert(!out.includes('doreturn'),'X7.1 no debe permitir tokens de bloque fusionados');
     assert(!/\bbit32\b|\bbit64\b|\bxor\b/i.test(out),'X7.1 no debe depender de APIs bitwise prohibidas');
     for(const marker of ['Z-Nexus','makeCounter','counterA','transform']){
         assert(!out.includes(marker),'X7.1 no debe exponer un identificador fuente');
